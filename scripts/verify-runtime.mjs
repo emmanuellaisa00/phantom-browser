@@ -45,7 +45,7 @@ function validateRelativePath(name) {
   const normalized = path.normalize(name.replace(/\\/g, '/'));
   if (normalized.startsWith('..') || normalized === '..') throw new Error('Path traversal in manifest: ' + name);
   if (normalized.startsWith('/')) throw new Error('Absolute path after normalization: ' + name);
-  return normalized;
+  return normalized.replace(/\\/g, '/');
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,7 @@ function enumerateRuntime(root) {
 // ---------------------------------------------------------------------------
 function main() {
   const [manifestFile] = process.argv.slice(2);
-  const manifestPath = path.resolve(manifestFile || path.join(MANIFEST_DIR, `linux-x64-chromium-156.0.8078.4.json`));
+  const manifestPath = path.resolve(manifestFile || path.join(MANIFEST_DIR, `${process.platform}-${process.arch}-chromium-156.0.8078.4.json`));
 
   if (!fs.existsSync(manifestPath)) fail(`Trusted manifest not found: ${path.relative(process.cwd(), manifestPath)}`);
   let manifest;

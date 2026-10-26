@@ -187,7 +187,7 @@ export class Service {
     this.log(`Deleted profile ${id}`);
   }
 
-  private acquire(id: string, chromiumPid?: number) {
+  private acquire(id: string, chromiumPid?: number, launchId = randomUUID()) {
     const lockDir = path.join(this.directory(id), '.phantom-lock');
     const metaPath = path.join(lockDir, 'metadata.json');
     const nowTs = now();
@@ -199,10 +199,17 @@ export class Service {
         /* malformed or incomplete lock */
       }
       if (existing) {
-        const electronAlive = this.isProcessAlive(existing.electronPid);
-        const chromiumAlive = existing.chromiumPid ? this.isProcessAlive(existing.chromiumPid) : false;
-        if (electronAlive || chromiumAlive) {
+        if (!Number.isSafeInteger(existing.electronPid) || existing.electronPid <= 0 || existing.profileId !== id) {
+          throw Error('Profile is locked: invalid metadata requires manual recovery');
+        }
+        if (this.isProcessAlive(existing.electronPid) || (existing.chromiumPid && this.isProcessAlive(existing.chromiumPid))) {
           throw Error('Profile is locked by a live process');
+        }
+      } else {
+        const legacy = path.join(lockDir, 'pid');
+        const pid = fs.existsSync(legacy) ? Number(fs.readFileSync(legacy, 'utf8').trim()) : 0;
+        if (!Number.isSafeInteger(pid) || pid <= 0 || this.isProcessAlive(pid)) {
+          throw Error('Profile is locked; close other instances or recover the lock manually');
         }
       }
       fs.rmSync(lockDir, {recursive: true, force: true});
@@ -214,7 +221,7 @@ export class Service {
       electronPid: process.pid,
       chromiumPid,
       profileId: id,
-      launchId: this.running.get(id)?.launchId ?? randomUUID(),
+      launchId,
       state: 'acquiring',
       createdAt: nowTs,
       updatedAt: nowTs,
@@ -257,16 +264,6 @@ export class Service {
     }
   }
 
-  private isOurProcess(pid: number, expectedName: string): boolean {
-    if (!pid || pid <= 0) return false;
-    try {
-      const cmdline = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-      return cmdline.includes(expectedName);
-    } catch {
-      return false;
-    }
-  }
-
   private updateLock(id: string, state: LockState, chromiumPid?: number) {
     const lockDir = path.join(this.directory(id), '.phantom-lock');
     const metaPath = path.join(lockDir, 'metadata.json');
@@ -280,7 +277,9 @@ export class Service {
     if (chromiumPid) meta.chromiumPid = chromiumPid;
     meta.updatedAt = now();
     try {
-      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), {mode: 0o600});
+      const tmp = metaPath + '.partial';
+      fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), {mode: 0o600});
+      fs.renameSync(tmp, metaPath);
     } catch {
       /* best effort */
     }
@@ -298,11 +297,11 @@ export class Service {
         this.log(`Malformed lock metadata for profile ${p.id}`);
         continue;
       }
-      if (meta.electronPid && this.isProcessAlive(meta.electronPid) && this.isOurProcess(meta.electronPid, 'Phantom')) {
+      if (meta.electronPid && this.isProcessAlive(meta.electronPid)) {
         this.log(`Profile ${p.id} has active Electron process ${meta.electronPid}`);
         continue;
       }
-      if (meta.chromiumPid && this.isProcessAlive(meta.chromiumPid) && this.isOurProcess(meta.chromiumPid, 'chrome')) {
+      if (meta.chromiumPid && this.isProcessAlive(meta.chromiumPid)) {
         this.log(`Profile ${p.id} has orphaned Chromium process ${meta.chromiumPid}; marking for recovery`);
         this.patch(p.id, {lastError: 'Browser process may still be using this profile. Recovery required.'});
         continue;
@@ -338,8 +337,10 @@ export class Service {
       throw Error('Profile storage is missing; restore a backup');
     }
     configSchema.parse(p.config);
-    this.acquire(id);
-    const runtime: Runtime = {launchId: randomUUID(), closing: false, electronPid: process.pid};
+    const launchId = randomUUID();
+    this.acquire(id, undefined, launchId);
+    this.updateLock(id, 'starting');
+    const runtime: Runtime = {launchId, closing: false, electronPid: process.pid};
     this.running.set(id, runtime);
     this.db.transaction(() => this.db.run('INSERT INTO launches VALUES(?,?,?,NULL,NULL)', [runtime.launchId, id, now()]));
     try {
@@ -402,8 +403,8 @@ export class Service {
   private finished(id: string, r: Runtime, outcome: string) {
     if (this.running.get(id) !== r) return;
     this.running.delete(id);
-    this.release(id);
     this.updateLock(id, 'released');
+    this.release(id);
     this.db.transaction(() => this.db.run('UPDATE launches SET ended_at=?,outcome=? WHERE id=?', [now(), outcome, r.launchId]));
     const job = this.jobs.get(id);
     if (job) job.cancelled = true;

@@ -69,6 +69,7 @@ function main() {
 
   // If a trusted manifest already exists, never silently overwrite it.
   const manifestExists = fs.existsSync(MANIFEST_FILE);
+  if (!manifestExists && !process.argv.includes('--bootstrap')) fail('Trusted manifest missing. Maintainers must explicitly use --bootstrap, review upstream hashes, and commit the manifest.');
 
   const tmpRoot = path.join(ROOT, `.provision-tmp-${process.pid}`);
   try {
