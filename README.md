@@ -1,3 +1,5 @@
+> **Windows installer:** [Download Phantom Browser Setup 0.1.0 (Windows x64)](https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.1.0/Phantom-Browser-Setup-0.1.0-x64.exe). One setup EXE includes Chromium; no Node.js or Git needed. This unsigned build passed Windows browser, DPAPI, and installed-application smoke tests. [Installation details](docs/WINDOWS_INSTALL.md).
+
 # Phantom Browser — Local-First Windows Profile Manager
 
 > **Status:** v0.1.0 development release. Functional on Linux for development/CI; Windows installer and runtime require a Windows 10/11 host. **Not security-audited. Use at your own risk with test accounts only.**
