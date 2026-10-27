@@ -20,3 +20,47 @@ test('real automation report includes every action with safe outcomes and screen
  expect(report.report.map((s:{action:string})=>s.action)).toEqual(['navigate','wait','fill','click','title','screenshot']); expect(report.outcome).toBe('success'); expect(JSON.stringify(report)).not.toContain('PRIVATE_FILL');
  expect(fs.existsSync(path.join(dir,report.report[5].screenshot))).toBe(true);
 });
+
+test('startup tabs, homepage, DPR, explicit geolocation and stable relaunch are real browser behavior',async()=>{
+ const p=f.service.create({name:'Configured tabs',homepage:origin+'/home',startupUrls:[origin+'/first',origin+'/second'],config:{deviceScaleFactor:1.5,webrtcPolicy:'disable-non-proxied-udp',geolocationPermission:'allow',geolocation:{latitude:-0.3,longitude:36}}});
+ const context=await f.service.launch(p.id);expect(context.pages().map(p=>p.url())).toEqual([origin+'/first',origin+'/second']);
+ const observed=await f.service.diagnose(p.id);expect(observed.observed.devicePixelRatio).toBe(1.5);expect(observed.observed.geolocationPermission).toBe('granted');expect(observed.inconsistencies).toEqual([]);
+ const geo=await f.service.page(p.id).evaluate(()=>new Promise<{latitude:number;longitude:number}>((resolve,reject)=>navigator.geolocation.getCurrentPosition(p=>resolve({latitude:p.coords.latitude,longitude:p.coords.longitude}),reject)));
+ expect(geo).toEqual({latitude:-0.3,longitude:36});await f.service.home(p.id);expect(f.service.page(p.id).url()).toBe(origin+'/home');
+ await f.service.stop(p.id);await f.service.launch(p.id);const again=await f.service.diagnose(p.id);expect(again.observed.devicePixelRatio).toBe(observed.observed.devicePixelRatio);expect(again.expected).toEqual(observed.expected);expect(f.service.profile(p.id).lastUsed).not.toBe(null);
+});
+
+test('geolocation coordinates alone never grant permission',async()=>{
+ const p=f.service.create({name:'No consent',launchUrl:origin,config:{geolocation:{latitude:0,longitude:0}}});await f.service.launch(p.id);
+ expect((await f.service.diagnose(p.id)).observed.geolocationPermission).toBe('denied');
+});
+
+test('HTTP Basic and SOCKS5 profiles route independently through controlled local proxies',async()=>{
+ const {httpProxy,socksProxy}=await import('./proxy-fixture');const targetPort=Number(new URL(origin).port),http=await httpProxy(targetPort,'local-user:local-password'),socks=await socksProxy(targetPort);
+ try{
+ await f.service.proxySave(undefined,{name:'HTTP Basic',protocol:'http',host:'127.0.0.1',port:http.port,username:'local-user',password:'local-password',region:'Local test'});
+ await f.service.proxySave(undefined,{name:'SOCKS',protocol:'socks5',host:'127.0.0.1',port:socks.port});
+ const proxies=f.service.snapshot().proxies;
+ const a=f.service.create({name:'HTTP profile',launchUrl:origin+'/http',proxyId:proxies.find(p=>p.name==='HTTP Basic')!.id}),b=f.service.create({name:'SOCKS profile',launchUrl:origin+'/socks',proxyId:proxies.find(p=>p.name==='SOCKS')!.id});
+ await f.service.launch(a.id);await f.service.page(a.id).evaluate(()=>localStorage.setItem('route','http'));await f.service.launch(b.id);
+ expect(http.stats.forwarded).toBeGreaterThan(0);expect(http.stats.challenges).toBeGreaterThan(0);expect(socks.stats.forwarded).toBeGreaterThan(0);
+ expect(await f.service.page(b.id).evaluate(()=>localStorage.getItem('route'))).toBe(null);expect(f.service.running.size).toBe(2);
+ }finally{await f.service.shutdown();await http.close();await socks.close();}
+});
+
+test('proxy probe records bounded real latency and redacted failures without direct fallback',async()=>{
+ const {httpProxy}=await import('./proxy-fixture');let hits=0;const ipServer=http.createServer((_req,res)=>{hits++;res.setHeader('Content-Type','application/json');res.end('{"ip":"127.0.0.1"}');});
+ await new Promise<void>(resolve=>ipServer.listen(0,'127.0.0.1',resolve));const port=(ipServer.address() as {port:number}).port,proxy=await httpProxy(port);
+ try{
+ await f.service.proxySave(undefined,{name:'Probe',protocol:'http',host:'127.0.0.1',port:proxy.port});const saved=f.service.snapshot().proxies[0]!;
+ expect(await f.service.proxyTest(saved.id,`http://127.0.0.1:${port}`)).toContain('Connected');expect(proxy.stats.forwarded).toBeGreaterThan(0);expect(f.service.snapshot().proxies[0]!.latencyMs).toBeGreaterThan(0);
+ await proxy.close();const before=hits;const p=f.service.create({name:'Fail closed',proxyId:saved.id,launchUrl:`http://127.0.0.1:${port}/must-not-be-direct`});await expect(f.service.launch(p.id)).rejects.toThrow('launch failed');expect(hits).toBe(before);
+ const result=await f.service.proxyTest(saved.id,`http://127.0.0.1:${port}`);expect(result).toContain('Connection failed');expect(hits).toBe(before);
+ }finally{await proxy.close();await new Promise<void>(resolve=>ipServer.close(()=>resolve()));}
+});
+
+test('delay and URL actions execute, keep durations, and never persist raw page URLs',async()=>{
+ const p=f.service.create({name:'Timed automation',launchUrl:origin+'/?token=PRIVATE_QUERY'});await f.service.launch(p.id);await f.service.automate(p.id,[{action:'delay',milliseconds:70},{action:'url'},{action:'title'}]);
+ const dir=path.join(f.root,'reports'),report=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(p=>p.endsWith('.json'))!),'utf8'));
+ expect(report.outcome).toBe('success');expect(report.report[0].durationMs).toBeGreaterThanOrEqual(60);expect(report.durationMs).toBeGreaterThanOrEqual(report.report[0].durationMs);expect(JSON.stringify(report)).not.toContain('PRIVATE_QUERY');
+});

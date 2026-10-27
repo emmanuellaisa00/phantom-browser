@@ -28,3 +28,19 @@ it('strictly validates new archive and bounded automation actions', () => {
   expect(requestSchema.safeParse({action: 'automate', id: p.id, steps: [{action: 'url'}, {action: 'delay', milliseconds: 50}]}).success).toBe(true);
   expect(requestSchema.safeParse({action: 'automate', id: p.id, steps: [{action: 'delay', milliseconds: 999999}]}).success).toBe(false);
 });
+it('does not commit credentials if a profile starts while DPAPI encryption is pending', async()=>{
+ await f.service.proxySave(undefined,{name:'Race',protocol:'http',host:'localhost',port:8080});
+ const proxy=f.service.snapshot().proxies[0]!,p=f.service.create({name:'Race profile',proxyId:proxy.id});
+ const seal=f.secrets.seal;f.secrets.seal=async value=>{const bytes=await seal(value);f.service.running.set(p.id,{launchId:'race-test',closing:false,electronPid:process.pid,browserMayExist:false});return bytes;};
+ try{await expect(f.service.proxySave(proxy.id,{name:'Changed',protocol:'http',host:'localhost',port:8081,username:'test',password:'test'})).rejects.toThrow('Stop assigned');expect(f.service.snapshot().proxies[0]!.port).toBe(8080);}finally{f.service.running.clear();}
+});
+it('loads v0.1.1 JSON metadata without a destructive migration and keeps legacy startup settings',()=>{
+ const p=f.service.create({name:'Legacy',launchUrl:'https://example.com'});const legacy:Record<string,unknown>={...p};
+ for(const key of ['description','homepage','startupUrls','archivedAt','lastUsed'])delete legacy[key];
+ f.db.transaction(()=>f.db.run('UPDATE profiles SET data=? WHERE id=?',[JSON.stringify(legacy),p.id]));
+ const loaded=f.service.profile(p.id);expect(loaded.startupUrls).toEqual([]);expect(loaded.archivedAt).toBe(null);expect(loaded.launchUrl).toBe('https://example.com');expect(fs.existsSync(loaded.directory)).toBe(true);
+});
+it('blocks contradictory custom user agents before launching or acquiring locks',async()=>{
+ const p=f.service.create({name:'Contradiction',config:{userAgent:'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Safari/605.1.15'}});
+ await expect(f.service.launch(p.id)).rejects.toThrow('Chromium major');expect(f.service.running.size).toBe(0);expect(fs.existsSync(path.join(p.directory,'.phantom-lock'))).toBe(false);
+});

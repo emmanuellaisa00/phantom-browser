@@ -161,7 +161,7 @@ export class Service {
   async home(id: string) {
     const p = this.profile(id);
     if (!p.homepage) throw Error('Configure a homepage first');
-    await this.page(id).goto(p.homepage, {timeout:15000, waitUntil:'domcontentloaded'});
+    try{await this.page(id).goto(p.homepage, {timeout:15000, waitUntil:'domcontentloaded'});}catch{throw Error('Homepage navigation failed; sensitive details withheld');}
     this.patch(id, {lastUsed:now()});
   }
 
@@ -487,6 +487,8 @@ export class Service {
         catch {throw Error('Windows DPAPI unavailable; credentials were not saved and no plaintext fallback was used');}
       }
     }
+    if(this.shuttingDown)throw Error('Application is shutting down');
+    if(this.profiles().some(v=>v.proxyId===key&&this.running.has(v.id)))throw Error('Stop assigned profiles before editing a proxy');
     const data = {
       id: key,
       name: p.name,
@@ -674,6 +676,7 @@ export class Service {
       if (Buffer.byteLength(json) > BACKUP_LIMITS.decompressed) throw Error('Backup manifest exceeds safety limit');
       const compressed = gzipSync(json);
       const bytes = password === undefined ? compressed : await encryptBackup(compressed,password);
+      if(this.shuttingDown)throw Error('Application is shutting down');
       if (bytes.length > BACKUP_LIMITS.archive) throw Error('Backup archive exceeds safety limit');
       const tmp = target + '.' + randomUUID() + '.partial';
       try {
