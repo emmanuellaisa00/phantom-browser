@@ -1,0 +1,371 @@
+{
+  "capturedAt": "2026-10-27T06:48:35.471Z",
+  "sourceCommit": "d44c42735dfdf72f4f78ea9b5e1fcb82be9d4af2",
+  "platform": "linux",
+  "resolution": "1440x1000 renderer window; full-page captures where needed",
+  "syntheticDataOnly": true,
+  "linuxBrowserAdapter": "Real Chromium contexts run headless with chromiumSandbox=false in this documentation harness only.",
+  "note": "Renderer still contains the existing v0.1.0 display label in the v0.1.1 source. These images reproduce the real UI; the label was not retouched.",
+  "screenshots": [
+    {
+      "file": "01-01-fresh-dashboard.png",
+      "title": "Dashboard — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1424,
+      "height": 1246,
+      "sha256": "82fdbe9b0a2188c83cc68ecbbb47312f23d07b0ba8b234852794e9ccef42f70b"
+    },
+    {
+      "file": "01-02-fresh-browser-profiles.png",
+      "title": "Browser Profiles — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "1e27d9bb28ea305badad66ce3d225b08bbd9c989594cb0112ce9be6dc6ca8a25"
+    },
+    {
+      "file": "01-03-fresh-proxy-manager.png",
+      "title": "Proxy Manager — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "6576eb53349ab08f92bb9b605fbb8464660d15f1179f5b1d7b138471dc36be60"
+    },
+    {
+      "file": "01-04-fresh-fingerprint-diagnostics.png",
+      "title": "Fingerprint Diagnostics — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "b739d76b46678ee1270076c91b1825f5878bd28f057364d6e2cd9daa1cd804f8"
+    },
+    {
+      "file": "01-05-fresh-automation.png",
+      "title": "Automation — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "84a9afe346412298e0461ff6e40ed73bc6a604851f657e30f3fefab2ece06253"
+    },
+    {
+      "file": "01-06-fresh-backups.png",
+      "title": "Backups — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "0b13711548f02c82a564d9b2e4162489d71ba7afeeb995f7969896a60bf047c8"
+    },
+    {
+      "file": "01-07-fresh-logs.png",
+      "title": "Logs — fresh workspace",
+      "note": "Contains the genuine startup event.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "840f9b5072ee71c63c48b67155e8c61f10cada9db9fe836bd5db1312eaf10a35"
+    },
+    {
+      "file": "01-08-fresh-settings.png",
+      "title": "Settings — fresh workspace",
+      "note": "No profiles or proxies have been seeded yet.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "38407a08af0a08e5fe3a429694c81e2c80f9a497452497af4c75e3953c10f970"
+    },
+    {
+      "file": "02-01-create-profile.png",
+      "title": "Create profile dialog",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "b76bae116e640eb7e0040fd3fe24bdba3fad1672bf7ab5738a1b8c0576ce52a3"
+    },
+    {
+      "file": "02-02-create-profile-filled.png",
+      "title": "Create profile — filled demo configuration",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "1e42a257fa1777c04cda8800c2de7acdea724795b54117c2b3cba19d7dce54a4"
+    },
+    {
+      "file": "02-03-create-profile-config.png",
+      "title": "Create profile — configuration and validation guidance",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "84065e7c5d42b2ce6209637296f0b6933f08e6be830779a06cc50daae67c77f1"
+    },
+    {
+      "file": "02-04-profile-validation.png",
+      "title": "Profile configuration validation error",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "b970b04fc4bef4be360fc3aa49217ba7f9c1fad7fb474c6d5fe296b22b6b2574"
+    },
+    {
+      "file": "03-01-add-proxy.png",
+      "title": "Add proxy dialog",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "6e6de3ff5dfcbb265877124e9c83d81c42839aa18bf0dcbf9705cc8d89855c00"
+    },
+    {
+      "file": "03-02-add-proxy-filled.png",
+      "title": "Add proxy — synthetic loopback endpoint",
+      "note": "No credentials; connectivity is not claimed.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "ee65d319de243ead08bfd169484185e98bc848d4968e041e7f778438b8ce4c4d"
+    },
+    {
+      "file": "03-03-socks5-dialog.png",
+      "title": "SOCKS5 configuration — authentication disabled",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "c62eb141c1e47b973b8d997b39bac608aecc74f116bc9a267e00d8bf4e32e6cf"
+    },
+    {
+      "file": "04-01-dashboard-populated.png",
+      "title": "Dashboard — populated and live",
+      "note": "Two real Chromium profiles are running; one controlled proxy launch failed.",
+      "kind": "Electron renderer",
+      "width": 1424,
+      "height": 1455,
+      "sha256": "521d3cab80ab469dc9c3e1eb31fe1b8c041e2350afcf0115d2c93b2930c997c3"
+    },
+    {
+      "file": "04-02-profiles-populated.png",
+      "title": "Profiles — running, stopped and controlled failure",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "ad8e3086dfe42b74054c0b6013e7db2afeb90147f8b99f4c3c228bbe01661acf"
+    },
+    {
+      "file": "04-03-profiles-bulk-selection.png",
+      "title": "Profiles — bulk selection",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "2f53f7a1139e38586d66f32878300ce9a9130618b584ab35c62f083cfa13b2fb"
+    },
+    {
+      "file": "04-04-profiles-running-filter.png",
+      "title": "Profiles — running filter",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "694bf362e3513815ede34857d621a79bbd9ad77a098404a0a2d3b0355dc86719"
+    },
+    {
+      "file": "04-05-profiles-no-search-results.png",
+      "title": "Profiles — no matching search results",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "886b9f98854f2a53145736b84ded73c75c2a3e0639021e2d6f817108aa11f012"
+    },
+    {
+      "file": "04-06-edit-profile.png",
+      "title": "Edit existing profile",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "44e234aa03e4680de2526e390e338d162f07f5a183eb5c6f3f034097a2c7ace6"
+    },
+    {
+      "file": "04-07-profile-actions-menu.png",
+      "title": "Profile actions menu",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "e66ccc5b63a1035b580ca808283d69a48a89ea9066f8612525c20d899cc43008"
+    },
+    {
+      "file": "05-01-proxy-manager-populated.png",
+      "title": "Proxy manager — configured, not falsely connected",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "9c39e1fafe31539669b27a885d10607cccad84f94900bdd91b286648a5117b89"
+    },
+    {
+      "file": "05-02-edit-proxy.png",
+      "title": "Edit proxy — credential handling guidance",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "c79a8a338ac7bca6dce8e6ca01a46fe709eaef49576a60876b56206ff2080186"
+    },
+    {
+      "file": "05-03-proxy-test-failure.png",
+      "title": "Proxy connectivity test — genuine failure",
+      "note": "Loopback port 1 is deliberately unreachable; no fabricated success.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "5fce5c56f0377408a354b4ea9c7dfee20c8ae32e83d0ecaf450fdafa7904a16b"
+    },
+    {
+      "file": "06-01-diagnostics-result.png",
+      "title": "Diagnostics — actual Chromium observations",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1424,
+      "height": 1209,
+      "sha256": "650cfcf3d3b524357fc01d87e771ac8a6eded831d7cb4eecb536df23e1690925"
+    },
+    {
+      "file": "07-01-automation-ready.png",
+      "title": "Automation — six-action local test",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "8c473d5d9028ccb4a9baf3b9f409eea8c8717f155d4204991c9601e7b31b9230"
+    },
+    {
+      "file": "07-02-automation-completed.png",
+      "title": "Automation — genuine completed job",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "c036818faf3c76bdfd6ca6617b905481f33e4f0e5532f24611f3c30511188205"
+    },
+    {
+      "file": "07-03-automation-validation.png",
+      "title": "Automation — invalid JSON rejected",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1424,
+      "height": 1065,
+      "sha256": "cb99f7416789fd0c4da93e575fbf53edf14d5d0779c2adcfab2d2644601518c6"
+    },
+    {
+      "file": "07-04-automation-running.png",
+      "title": "Automation — running cancellable wait",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "3572479be9e0819553bf371f20d10135c9dff656755470bacffa8eef33d64c46"
+    },
+    {
+      "file": "07-05-automation-cancelled.png",
+      "title": "Automation — cancelled job and closed profile",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "dfa89068bda40f900aeb3454c129bfe5869979ddde7087de72ba1fc36a76aeb7"
+    },
+    {
+      "file": "08-01-backup-history.png",
+      "title": "Backups — real archive and SHA-256 history",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "460eba8ac85f978870b519e10ab140c07c10c5fb83216ccf7b49fe7367c037a6"
+    },
+    {
+      "file": "08-02-backup-restored.png",
+      "title": "Backups — completed restore retained in history",
+      "note": "Restore created a distinct new profile; see the following profile list.",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "a1563833fdfbc35aa1754c79dbe4184c74d409bcaf5de7c7ba85feb9cb860060"
+    },
+    {
+      "file": "08-03-restored-profile.png",
+      "title": "Profiles — restored copy has a new identity",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "62c1fa2527a735cfeaade1f0de4eac7df99dda7c3652f0ceec58c8e2f854155d"
+    },
+    {
+      "file": "09-01-logs-populated.png",
+      "title": "Logs — genuine demo-session events",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "ea31b6ffcaccbe7a33cf77cee1bf4ef74cc41c2149cd60df6ca45d38d6e94916"
+    },
+    {
+      "file": "10-01-settings-saved.png",
+      "title": "Settings — resource limit saved",
+      "note": "",
+      "kind": "Electron renderer",
+      "width": 1439,
+      "height": 999,
+      "sha256": "ecb6dfbfe9c8e71225eb109e09c25c5c68133fdef35556fc0940d5dc7340f74e"
+    },
+    {
+      "file": "11-01-native-backup-warning.png",
+      "title": "Native backup sensitivity warning",
+      "note": "Actual Linux GTK dialog; Windows native styling differs.",
+      "kind": "Linux native desktop dialog",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "0f63229a5c78eaef4f8a5dd3784dff2838258338ba75d15efb20f495b0a4f753"
+    },
+    {
+      "file": "11-02-native-delete-confirmation.png",
+      "title": "Native permanent-delete confirmation",
+      "note": "Cancelled after capture; no demo profile is deleted. Linux GTK styling.",
+      "kind": "Linux native desktop dialog",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "0edf97d7a23b957f181610722208e21333bfdfd0a7ce1b3ba0fecd250cf13f14"
+    },
+    {
+      "file": "11-03-native-restore-file-picker.png",
+      "title": "Native restore archive picker",
+      "note": "Actual Linux file picker, restricted to a disposable synthetic-data directory.",
+      "kind": "Linux native desktop dialog",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "a5cc81668cd879e189f0fe4e165d3d282036fb12ed7b397903de99f5839c790a"
+    },
+    {
+      "file": "11-04-native-export-file-picker.png",
+      "title": "Native backup export picker",
+      "note": "Actual Linux save picker. Cancelled without writing outside the fixture.",
+      "kind": "Linux native desktop dialog",
+      "width": 1440,
+      "height": 1000,
+      "sha256": "1166a1cdb40525aba8b774d19fe8d107adff5b1d15323dc6ae1196e07d18af6b"
+    }
+  ]
+}

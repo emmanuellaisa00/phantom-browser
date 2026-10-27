@@ -1,3 +1,5 @@
+> **Screenshot gallery:** [40 real app captures — all eight pages, dialogs and states](docs/screenshots/README.md). Synthetic demo data only; native-dialog images are clearly labelled Linux captures.
+
 > **v0.1.1 candidate (local, not published):** hardening changes and regression tests are described in [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md). Windows Server 2025 CI passed packaging, real setup installation, DPAPI and runtime-tamper/recovery tests; Windows 10/11 manual checks remain pending. The download below remains the older **v0.1.0** release.
 
 > **Windows installer:** [Download Phantom Browser Setup 0.1.0 (Windows x64)](https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.1.0/Phantom-Browser-Setup-0.1.0-x64.exe). One setup EXE includes Chromium; no Node.js or Git needed. This unsigned build passed Windows browser, DPAPI, and installed-application smoke tests. [Installation details](docs/WINDOWS_INSTALL.md).
