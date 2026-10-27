@@ -69,8 +69,14 @@ test('installed Electron termination preserves session data and ownership-aware 
  try{
   let page=await app.firstWindow();const created=await page.evaluate(()=>window.phantom!.request({action:'create',input:{name:'Crash persistence',notes:'preserved after manager termination',tags:[],proxyId:null,launchUrl:'',config:{version:1,viewport:{width:1280,height:720},locale:'en-US',timezoneId:'UTC',colorScheme:'dark',reducedMotion:'no-preference'}}}));if(!created.ok)throw Error(created.error);const p=created.snapshot.profiles[0]!;
   const launched=await page.evaluate(id=>window.phantom!.request({action:'launch',id}),p.id);expect(launched.ok).toBe(true);const lock=JSON.parse(fs.readFileSync(path.join(p.directory,'.phantom-lock','metadata.json'),'utf8'));
-  expect(lock.electronPid).toBe(app.process().pid);saved={id:p.id,directory:p.directory,launchId:lock.launchId,chromiumPid:lock.chromiumPid};
-  const exited=new Promise<void>(resolve=>app.process().once('exit',()=>resolve()));app.process().kill('SIGKILL');await exited;
+  // The Windows launcher's child PID need not be the attached Electron main PID.
+  // Authenticate the actual manager through its attached main context, native exe,
+  // isolated app-data path and OS identity before terminating that exact process.
+  const manager=await app.evaluate(({app})=>({pid:process.pid,executable:process.execPath,root:app.getPath('userData')}));
+  expect(path.resolve(manager.executable).toLowerCase()).toBe(path.resolve(executable).toLowerCase());expect(path.resolve(manager.root).toLowerCase()).toBe(path.resolve(root).toLowerCase());expect(lock.electronPid).toBe(manager.pid);
+  const {scanProcesses}=await import('../src/main/process-ownership');const identity=scanProcesses()?.find(x=>x.pid===manager.pid);expect(identity).toBeDefined();expect(path.resolve(identity!.executable).toLowerCase()).toBe(path.resolve(executable).toLowerCase());expect(identity!.command.toLowerCase()).toContain(root.toLowerCase());
+  saved={id:p.id,directory:p.directory,launchId:lock.launchId,chromiumPid:lock.chromiumPid};
+  process.kill(manager.pid,'SIGKILL');await expect.poll(()=>{try{process.kill(manager.pid,0);return false;}catch(e){return (e as NodeJS.ErrnoException).code==='ESRCH';}},{timeout:15000}).toBe(true);
   app=await electron.launch({executablePath:executable,args});page=await app.firstWindow();const snapshot=await page.evaluate(()=>window.phantom!.request({action:'snapshot'}));expect(snapshot.ok).toBe(true);if(!snapshot.ok)throw Error(snapshot.error);expect(snapshot.snapshot.profiles.find(x=>x.id===p.id)?.notes).toBe('preserved after manager termination');
   const identities=ownedProcesses(saved.launchId,p.directory,browserExecutable);expect(identities).not.toBe(null);const retry=await page.evaluate(id=>window.phantom!.request({action:'launch',id}),p.id);
   if(identities?.length){expect(retry.ok).toBe(false);expect(fs.existsSync(path.join(p.directory,'.phantom-lock'))).toBe(true);}else if(retry.ok){expect(retry.snapshot.profiles.find(x=>x.id===p.id)?.status).toBe('running');expect((await page.evaluate(id=>window.phantom!.request({action:'stop',id}),p.id)).ok).toBe(true);}else{expect(retry.error).toContain('locked');}

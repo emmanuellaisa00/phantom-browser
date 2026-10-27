@@ -3,6 +3,19 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 
 export interface ProcessIdentity {pid: number; birth: string; command: string; executable: string}
+/** Inaccessible Chromium rows are unknown, never proof that a browser exited. */
+export function parseWindowsProcessRows(value:unknown):ProcessIdentity[]|null {
+  if(!Array.isArray(value))return null;
+  const result:ProcessIdentity[]=[];
+  for(const row of value){
+    if(!row||typeof row!=='object'||typeof row.Name!=='string'||!row.Name)return null;
+    const complete=Number.isSafeInteger(row.ProcessId)&&row.ProcessId>0&&typeof row.CommandLine==='string'&&!!row.CommandLine&&typeof row.ExecutablePath==='string'&&!!row.ExecutablePath&&!!row.CreationDate;
+    if(/^(?:chrome|chromium)\.exe$/i.test(row.Name)&&!complete)return null;
+    if(complete)result.push({pid:row.ProcessId,command:row.CommandLine,executable:row.ExecutablePath,birth:String(row.CreationDate)});
+  }
+  return result;
+}
+
 // A failed scan is unknown, never evidence that a browser has exited.
 export function scanProcesses(): ProcessIdentity[] | null {
   try {
@@ -10,18 +23,24 @@ export function scanProcesses(): ProcessIdentity[] | null {
       const entries: ProcessIdentity[] = [];
       for (const pid of fs.readdirSync('/proc').filter(p => /^\d+$/.test(p))) {
         try {
+          const sameUser=fs.statSync(`/proc/${pid}`).uid===process.getuid?.();
+          if(!sameUser)continue; // the owned browser's main process uses this service UID
           const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
           const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
           if (fields[0] === 'Z') continue;
           entries.push({pid: Number(pid), birth: fields[19]!, command: fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join('\n'), executable: fs.readlinkSync(`/proc/${pid}/exe`)});
-        } catch { /* inaccessible unrelated processes are not ownership candidates */ }
+        } catch(error) {
+          const code=(error as NodeJS.ErrnoException).code;
+          if(code==='ENOENT'||code==='ESRCH')continue; // exited during inspection
+          return null; // unknown/denied inspection is not exit proof
+        }
       }
       return entries;
     }
     if (process.platform === 'win32') {
-      const raw = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object ProcessId,CreationDate,CommandLine,ExecutablePath | ConvertTo-Json -Compress'], {timeout: 5000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, encoding: 'utf8'});
+      const raw = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process -ErrorAction Stop | Select-Object Name,ProcessId,CreationDate,CommandLine,ExecutablePath | ConvertTo-Json -Compress'], {timeout: 5000, maxBuffer: 8 * 1024 * 1024, windowsHide: true, encoding: 'utf8'});
       const rows = JSON.parse(raw);
-      return (Array.isArray(rows) ? rows : [rows]).filter(r => r.CommandLine && r.ExecutablePath && r.CreationDate).map(r => ({pid: Number(r.ProcessId), birth: String(r.CreationDate), command: String(r.CommandLine), executable: String(r.ExecutablePath)}));
+      return parseWindowsProcessRows(Array.isArray(rows) ? rows : [rows]);
     }
   } catch { /* unavailable OS inspection fails closed */ }
   return null;
