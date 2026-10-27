@@ -73,3 +73,7 @@ it('enforces restore per-file, decoded-total and count limits before new profile
     await expect(f.service.restore(file)).rejects.toThrow(); expect(f.service.profiles()).toHaveLength(1);
   }
 });
+it('refuses newer Chromium backup data before creating any destination profile',async()=>{
+ const {file,manifest}=await archive();manifest.engine='999.0.0.0';fs.writeFileSync(file,gzipSync(JSON.stringify(manifest)));const before=f.service.profiles().length;
+ await expect(f.service.restore(file)).rejects.toThrow('newer Chromium');expect(f.service.profiles()).toHaveLength(before);
+});

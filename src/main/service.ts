@@ -1,10 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID, createHash} from 'node:crypto';
+import {isIP} from 'node:net';
 import {gzipSync, gunzipSync} from 'node:zlib';
 import {chromium, type BrowserContext, type Page} from 'playwright';
 import {z} from 'zod';
-import {fingerprintIssues} from './fingerprint';
+import {observeFingerprint} from './fingerprint-observation';
+import {fingerprintCapabilities} from '../shared/fingerprint-capabilities';
+import {fingerprintIssues, observedFingerprintIssues} from './fingerprint';
 import {encryptBackup, decryptBackup} from './encrypted-backup';
 import {Database} from './database';
 import {runAutomation, type Job} from './automation';
@@ -528,7 +531,7 @@ export class Service {
         const page = await context.newPage();
         const response = await page.goto(endpoint, {timeout: 15000});
         if (!response?.ok()) throw Error();
-        const body = z.object({ip: z.string().regex(/^[0-9a-fA-F:.]+$/)}).parse(await response.json());
+        const body = z.object({ip: z.string().refine(value=>isIP(value)!==0,'Invalid IP literal')}).parse(await response.json());
         result = `Connected — public IP ${body.ip}`;
       } finally {
         try {await this.bounded(browser.close(), 5000);} catch {result = 'Test browser cleanup could not be confirmed; sensitive details withheld';}
@@ -552,45 +555,17 @@ export class Service {
   }
 
   async diagnose(id: string) {
-    const page = this.page(id);
-    const observed = await page.evaluate(async () => {
-      const canvas = document.createElement('canvas');
-      const gl = canvas.getContext('webgl');
-      return {
-        userAgent: navigator.userAgent,
-        language: navigator.language,
-        languages: [...navigator.languages],
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        viewport: {width: innerWidth, height: innerHeight},
-        screen: {width: screen.width, height: screen.height},
-        colorScheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
-        reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
-        devicePixelRatio,
-        deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory??null,
-        clientHints:(navigator as Navigator & {userAgentData?:{toJSON:()=>{platform:string;mobile:boolean;brands:{brand:string;version:string}[]}}}).userAgentData?.toJSON?.()??null,
-        geolocationPermission:await navigator.permissions.query({name:'geolocation'}).then(p=>p.state).catch(()=>'unavailable'),
-        capabilities:{canvas:!!document.createElement('canvas').getContext('2d'),audio:typeof AudioContext!=='undefined',webRTC:typeof RTCPeerConnection!=='undefined',mediaEnumeration:!!navigator.mediaDevices?.enumerateDevices},
-        hardwareConcurrency: navigator.hardwareConcurrency,
-        platform: navigator.platform,
-        webglVendor: gl?.getParameter(gl.VENDOR) as string | null,
-        webglRenderer: gl?.getParameter(gl.RENDERER) as string | null,
-        webdriver: navigator.webdriver,
-      };
-    });
-    const expected = this.profile(id).config;
-    const inconsistencies = fingerprintIssues(expected,process.platform,linuxManifest.version);
-    if(Math.abs((expected.deviceScaleFactor??1)-observed.devicePixelRatio)>0.01)inconsistencies.push('Device pixel ratio differs');
-    if(expected.geolocationPermission==='allow'&&observed.geolocationPermission!=='granted')inconsistencies.push('Geolocation permission not granted');
-    if (expected.userAgent && expected.userAgent !== observed.userAgent) inconsistencies.push('User agent mismatch');
-    if (expected.timezoneId !== observed.timezone) inconsistencies.push('Timezone mismatch or canonical alias');
-    if (expected.locale !== observed.language) inconsistencies.push('Locale mismatch');
-    if (JSON.stringify(expected.viewport) !== JSON.stringify(observed.viewport)) inconsistencies.push('Viewport differs');
-    if (expected.screen && JSON.stringify(expected.screen) !== JSON.stringify(observed.screen)) inconsistencies.push('Screen differs');
-    if (expected.colorScheme !== 'no-preference' && expected.colorScheme !== observed.colorScheme) inconsistencies.push('Color scheme differs');
-    if ((expected.reducedMotion === 'reduce') !== observed.reducedMotion) inconsistencies.push('Reduced motion differs');
-    const limitations=['WebGL, hardware concurrency, device memory, canvas, audio, fonts and media identities use native browser behavior; they are not spoofed','WebRTC policy is a Chromium launch setting, not a public-IP or DNS leak guarantee','Custom UA does not automatically rewrite high-entropy client hints','No external DNS, STUN or fingerprint service is contacted by this diagnostic'];
-    const result = {expected, observed, inconsistencies, limitations, processId: this.running.get(id)?.pid ?? null};
-    this.db.transaction(() => this.db.run('INSERT INTO diagnostics VALUES(?,?,?,?)', [randomUUID(), id, now(), JSON.stringify(result)]));
+    const page=this.page(id),expected=this.profile(id).config,observed=await observeFingerprint(page);
+    const inconsistencies=observedFingerprintIssues(expected,observed,process.platform,linuxManifest.version);
+    let policyArgumentObserved:boolean|null=null;
+    const runtime=this.running.get(id)!;
+    const identities=ownedProcesses(runtime.launchId,this.directory(id),chromium.executablePath());
+    const identity=identities?.find(p=>p.pid===runtime.pid)??identities?.[0];
+    if(identity)policyArgumentObserved=/(?:^|[\s"])--force-webrtc-ip-handling-policy=disable_non_proxied_udp(?:$|[\s"])/.test(identity.command);
+    if(expected.webrtcPolicy==='disable-non-proxied-udp'&&policyArgumentObserved===false)inconsistencies.push('Configured WebRTC launch argument not observed');
+    const limitations=['Native hardware/graphics/canvas/audio/font/media behavior is measured, not spoofed','Canvas/audio hashes and native details are fingerprint identifiers: keep local diagnostic data private','Local ICE uses no STUN/TURN and records no candidate addresses; public DNS/WebRTC leak protection is not certified','Client hints and permission policies can be unavailable on insecure or restricted origins; unavailable is not a successful verification'];
+    const result={expected,observed,inconsistencies,capabilities:fingerprintCapabilities,launchPolicy:{requested:expected.webrtcPolicy??'default',nonProxiedUDPArgumentObserved:policyArgumentObserved},limitations,processId:this.running.get(id)?.pid??null};
+    this.db.transaction(()=>this.db.run('INSERT INTO diagnostics VALUES(?,?,?,?)',[randomUUID(),id,now(),JSON.stringify(result)]));
     return result;
   }
 
@@ -706,6 +681,8 @@ export class Service {
     } catch {
       throw Error('Corrupt or unsupported backup');
     }
+    const savedMajor=manifest.engine.match(/^(\d+)\./)?.[1];
+    if(savedMajor&&Number(savedMajor)>Number(linuxManifest.version.split('.')[0]))throw Error('Backup uses a newer Chromium version; refusing an unsafe browser-data downgrade');
     const names = new Set<string>();
     let total = 0;
     if (manifest.files.length > BACKUP_LIMITS.count) throw Error('Backup file count exceeds safety limit');

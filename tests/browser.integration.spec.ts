@@ -1,6 +1,9 @@
 import {test,expect} from '@playwright/test';import http from 'node:http';import fs from 'node:fs';import path from 'node:path';import {fixture} from './helpers';
 let f:Awaited<ReturnType<typeof fixture>>;let server:http.Server;let origin:string;
-test.beforeEach(async()=>{f=await fixture();server=http.createServer((_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Controlled local test</title><input id="value"><button id="button" onclick="document.title=\'Clicked\'">Click</button>');});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;});
+test.beforeEach(async()=>{f=await fixture();server=http.createServer((_req,res)=>{if(_req.url==='/sw.js'){res.setHeader('Content-Type','application/javascript');res.end("self.addEventListener('install',()=>self.skipWaiting());self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));self.addEventListener('fetch',e=>{if(new URL(e.request.url).pathname==='/worker-controlled')e.respondWith(new Response('profile-worker-active'));});");return;}
+if(_req.url==='/headers'){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(_req.headers));return;}
+if(_req.url==='/ip-invalid'){res.setHeader('Content-Type','application/json');res.end('{"ip":"deadbeef"}');return;}
+res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Controlled local test</title><input id="value"><button id="button" onclick="document.title=\'Clicked\'">Click</button>');});await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;});
 test.afterEach(async()=>{await f.cleanup();await new Promise<void>(resolve=>server.close(()=>resolve()));});
 test('launch, close, relaunch: cookies and local storage persist independently',async()=>{const a=f.service.create({name:'A',launchUrl:origin}),b=f.service.create({name:'B',launchUrl:origin});await f.service.launch(a.id);await f.service.page(a.id).evaluate(()=>{document.cookie='session=alpha; max-age=3600; path=/';localStorage.setItem('workspace','alpha');});await f.service.launch(b.id);expect(await f.service.page(b.id).evaluate(()=>document.cookie)).toBe('');expect(await f.service.page(b.id).evaluate(()=>localStorage.getItem('workspace'))).toBe(null);await f.service.page(b.id).evaluate(()=>{document.cookie='session=beta; max-age=3600; path=/';localStorage.setItem('workspace','beta');});expect(f.service.running.size).toBe(2);expect(f.service.snapshot().profiles.filter(p=>p.status==='running')).toHaveLength(2);await f.service.stop(a.id);await f.service.launch(a.id);expect(await f.service.page(a.id).evaluate(()=>document.cookie)).toContain('alpha');expect(await f.service.page(a.id).evaluate(()=>localStorage.getItem('workspace'))).toBe('alpha');expect(await f.service.page(b.id).evaluate(()=>localStorage.getItem('workspace'))).toBe('beta');});
 test('duplicated Chromium session data remains independent',async()=>{const p=f.service.create({name:'Original',launchUrl:origin});await f.service.launch(p.id);await f.service.page(p.id).evaluate(()=>{document.cookie='copy=before; max-age=3600; path=/';localStorage.setItem('value','before');});await f.service.stop(p.id);const copy=await f.service.duplicate(p.id);await f.service.launch(copy.id);expect(await f.service.page(copy.id).evaluate(()=>document.cookie)).toContain('before');await f.service.page(copy.id).evaluate(()=>{document.cookie='copy=after; max-age=3600; path=/';localStorage.setItem('value','after');});await f.service.launch(p.id);expect(await f.service.page(p.id).evaluate(()=>document.cookie)).toContain('before');expect(await f.service.page(p.id).evaluate(()=>localStorage.getItem('value'))).toBe('before');});
@@ -92,4 +95,43 @@ test('IndexedDB and Chromium history persist without crossing profile directorie
  await f.service.stop(a.id);await f.service.stop(b.id);const {default:init}=await import('sql.js'),SQL=await init();
  const history=(directory:string)=>{const db=new SQL.Database(fs.readFileSync(path.join(directory,'Default','History')));try{return JSON.stringify(db.exec('SELECT url FROM urls'));}finally{db.close();}};
  expect(history(a.directory)).toContain('/only-A');expect(history(b.directory)).toContain('/only-B');expect(history(b.directory)).not.toContain('/only-A');
+});
+
+test('privacy screenshots cover fixed content outside the root element bounds',async()=>{
+ const p=f.service.create({name:'Out of bounds privacy',launchUrl:origin});await f.service.launch(p.id);const page=f.service.page(p.id);
+ await page.setContent('<style>html,body{height:1px;margin:0}</style><div style="position:fixed;top:100px;left:0;width:400px;height:200px;background:red">PRIVATE_FIXED_CONTENT</div>');
+ await f.service.automate(p.id,[{action:'screenshot'}]);const dir=path.join(f.root,'reports'),report=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(n=>n.endsWith('.json'))!),'utf8')),png=fs.readFileSync(path.join(dir,report.report[0].screenshot)).toString('base64');
+ const pixel=await page.evaluate(data=>new Promise<number[]>((resolve,reject)=>{const image=new Image();image.onload=()=>{const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;const c=canvas.getContext('2d')!;c.drawImage(image,0,0);resolve([...c.getImageData(10,120,1,1).data]);};image.onerror=reject;image.src='data:image/png;base64,'+data;}),png);
+ expect(pixel).toEqual([17,19,24,255]);
+});
+
+test('Cache Storage and service-worker state remain profile-local and survive restarts',async()=>{
+ const a=f.service.create({name:'Worker A',launchUrl:origin}),b=f.service.create({name:'Worker B',launchUrl:origin});await f.service.launch(a.id);
+ await f.service.page(a.id).evaluate(async()=>{await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;const cache=await caches.open('profile-cache');await cache.put('/saved-value',new Response('profile-A-only'));});
+ await expect.poll(()=>f.service.page(a.id).evaluate(()=>!!navigator.serviceWorker.controller)).toBe(true);
+ expect(await f.service.page(a.id).evaluate(()=>fetch('/worker-controlled').then(r=>r.text()))).toBe('profile-worker-active');
+ await f.service.launch(b.id);expect(await f.service.page(b.id).evaluate(()=>caches.keys())).toEqual([]);expect(await f.service.page(b.id).evaluate(async()=>(await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
+ expect(await f.service.page(b.id).evaluate(()=>fetch('/worker-controlled').then(r=>r.text()))).not.toBe('profile-worker-active');
+ await f.service.stop(a.id);await f.service.launch(a.id);expect(await f.service.page(a.id).evaluate(async()=>(await (await caches.open('profile-cache')).match('/saved-value'))?.text())).toBe('profile-A-only');
+ expect(await f.service.page(a.id).evaluate(async()=>(await navigator.serviceWorker.getRegistrations()).length)).toBe(1);expect(await f.service.page(a.id).evaluate(()=>fetch('/worker-controlled').then(r=>r.text()))).toBe('profile-worker-active');
+ expect(await f.service.page(b.id).evaluate(()=>caches.keys())).toEqual([]);
+});
+
+test('actual UA headers, client hints and native fingerprint samples are coherent and stable',async()=>{
+ const ua=process.platform==='win32'?'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36';
+ const p=f.service.create({name:'Observed identity',launchUrl:origin,config:{userAgent:ua,locale:'en-GB',timezoneId:'Africa/Nairobi',deviceScaleFactor:1.25,webrtcPolicy:'disable-non-proxied-udp'}});await f.service.launch(p.id);
+ const first=await f.service.diagnose(p.id),headers=await f.service.page(p.id).evaluate(()=>fetch('/headers').then(r=>r.json()));
+ expect(headers['user-agent']).toBe(ua);expect(headers['sec-ch-ua']).toContain('156');expect(headers['sec-ch-ua-platform']).toContain(process.platform==='win32'?'Windows':'Linux');expect(headers['accept-language']).toContain('en-GB');
+ expect(first.inconsistencies).toEqual([]);expect(first.observed.highEntropyClientHints?.fullVersionList?.some(b=>b.version.startsWith('156.'))).toBe(true);expect(first.observed.canvas.sha256).toMatch(/^[a-f0-9]{64}$/);expect(first.observed.audio.sha256).toMatch(/^[a-f0-9]{64}$/);
+ expect(first.observed.permissions.camera).not.toBe('granted');expect(first.observed.permissions.microphone).not.toBe('granted');expect(first.observed.media.identities).toBe('omitted');expect(first.launchPolicy.nonProxiedUDPArgumentObserved).toBe(true);
+ expect(JSON.stringify(first.observed.webRTC)).not.toMatch(/192\.168\.|127\.0\.0\.1|\.local/);expect(first.observed.leakChecks.dns).toContain('not-tested');
+ await f.service.stop(p.id);await f.service.launch(p.id);const again=await f.service.diagnose(p.id);
+ expect(again.observed.canvas.sha256).toBe(first.observed.canvas.sha256);expect(again.observed.audio.sha256).toBe(first.observed.audio.sha256);expect(again.observed.languages).toEqual(first.observed.languages);expect(again.inconsistencies).toEqual([]);
+});
+
+test('proxy probe rejects malformed public-IP bodies instead of claiming connectivity verification',async()=>{
+ const {httpProxy}=await import('./proxy-fixture');const proxy=await httpProxy(Number(new URL(origin).port));try{
+ await f.service.proxySave(undefined,{name:'Invalid response',protocol:'http',host:'127.0.0.1',port:proxy.port});const id=f.service.snapshot().proxies[0]!.id;
+ expect(await f.service.proxyTest(id,origin+'/ip-invalid')).toContain('Connection failed');expect(proxy.stats.forwarded).toBeGreaterThan(0);
+ }finally{await proxy.close();}
 });

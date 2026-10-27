@@ -3,15 +3,18 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import type {Page} from 'playwright';
 import {z} from 'zod';
+import {privateScreenshot} from './private-screenshot';
 import {stepSchema} from '../shared/schema';
 
 export interface Job {running: boolean; message: string; cancelled: boolean; done?: Promise<string>}
 interface StepRecord {
+  runId:string;
+  profileId:string;
   step: number;
   action: z.infer<typeof stepSchema>['action'];
   startedAt: string;
   completedAt: string;
-  durationMs?:number;
+  durationMs:number;
   outcome: 'success' | 'failure' | 'cancelled';
   error?: string;
   screenshot?: string;
@@ -37,7 +40,7 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
     fs.mkdirSync(directory, {recursive: true, mode: 0o700});
     if (fs.lstatSync(directory).isSymbolicLink() || !fs.lstatSync(directory).isDirectory()) throw Error('Invalid reports directory');
     for (const [index, step] of steps.entries()) {
-      const record: StepRecord = {step: index + 1, action: step.action, startedAt: now(), completedAt: '', outcome: 'cancelled'};
+      const record: StepRecord = {runId:jobId, profileId, durationMs:0, step: index + 1, action: step.action, startedAt: now(), completedAt: '', outcome: 'cancelled'};
       records.push(record);
       const stepClock = performance.now();
       try {
@@ -56,7 +59,8 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
           case 'screenshot': {
             const name = `${profileId}-${jobId}-${index + 1}.png`;
             const file = path.join(directory, name);
-            const bytes = await page.screenshot({timeout: 10000, mask: [page.locator('html')], maskColor: '#111318'});
+            const original = await page.screenshot({timeout: 10000, scale:'css', mask: [page.locator('html')], maskColor: '#111318'});
+            let bytes:Buffer;try{bytes=privateScreenshot(original);}finally{original.fill(0);}
             fs.writeFileSync(file, bytes, {flag: 'wx', mode: 0o600});
             record.screenshot = name;
             record.metadata = {content: 'omitted for privacy'};

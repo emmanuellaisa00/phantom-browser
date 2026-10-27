@@ -8,7 +8,7 @@ beforeEach(async () => {f = await fixture();});
 afterEach(async () => {vi.restoreAllMocks(); await f.cleanup();});
 function mockPage() {
   const locator = {waitFor: vi.fn().mockResolvedValue(undefined), click: vi.fn().mockResolvedValue(undefined), fill: vi.fn().mockResolvedValue(undefined)};
-  const page = {goto: vi.fn().mockResolvedValue(undefined), title: vi.fn().mockResolvedValue('password=SECRET'), screenshot: vi.fn().mockResolvedValue(Buffer.from('masked pixels')), locator: vi.fn().mockReturnValue(locator), setDefaultTimeout: vi.fn()};
+  const page = {goto: vi.fn().mockResolvedValue(undefined), title: vi.fn().mockResolvedValue('password=SECRET'), screenshot: vi.fn().mockResolvedValue(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLttAAAAABJRU5ErkJggg==','base64')), locator: vi.fn().mockReturnValue(locator), setDefaultTimeout: vi.fn()};
   vi.spyOn(f.service, 'page').mockReturnValue(page as unknown as Page);
   return {page, locator};
 }
@@ -56,4 +56,8 @@ it('uses unique names and recreates removed report directory', async () => {
   const p = f.service.create({name: 'Unique'}); mockPage(); fs.rmSync(path.join(f.root, 'reports'), {recursive: true});
   await f.service.automate(p.id, [{action: 'title'}]); await f.service.automate(p.id, [{action: 'title'}]);
   expect(fs.readdirSync(path.join(f.root, 'reports')).filter(n => n.endsWith('.json'))).toHaveLength(2);
+});
+it('makes every step independently attributable with required duration',async()=>{
+ const p=f.service.create({name:'Step attribution'});mockPage();await f.service.automate(p.id,[{action:'title'},{action:'fill',selector:'#field',value:'SECRET'}]);
+ const r=report();for(const step of r.report){expect(step.runId).toBe(r.runId);expect(step.profileId).toBe(p.id);expect(step.durationMs).toBeTypeOf('number');expect(step.durationMs).toBeGreaterThanOrEqual(0);}
 });
