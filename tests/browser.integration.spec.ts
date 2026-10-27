@@ -135,3 +135,34 @@ test('proxy probe rejects malformed public-IP bodies instead of claiming connect
  expect(await f.service.proxyTest(id,origin+'/ip-invalid')).toContain('Connection failed');expect(proxy.stats.forwarded).toBeGreaterThan(0);
  }finally{await proxy.close();}
 });
+
+test('untrusted HTTPS proxy fails closed without insecure TLS flags or direct fallback',async()=>{
+ const {tlsProxy}=await import('./tls-proxy-fixture'),proxy=await tlsProxy(Number(new URL(origin).port));try{
+ await f.service.proxySave(undefined,{name:'Untrusted TLS proxy',protocol:'https',host:'127.0.0.1',port:proxy.port});const p=f.service.create({name:'TLS rejection',launchUrl:origin,proxyId:f.service.snapshot().proxies[0]!.id});await expect(f.service.launch(p.id)).rejects.toThrow('launch failed');expect(proxy.stats.forwarded).toBe(0);expect(f.service.running.size).toBe(0);
+ }finally{await proxy.close();}
+});
+
+test('HTTPS proxy with a trusted disposable CA and Basic authentication works on Windows',async()=>{
+ test.skip(process.platform!=='win32'||process.env.CI!=='true'||!process.env.RUNNER_TEMP,'Certificate trust fixture requires ephemeral Windows CI; no consumer trust-store changes');
+ const {tlsProxy}=await import('./tls-proxy-fixture'),proxy=await tlsProxy(Number(new URL(origin).port),'tls-user:tls-test-password');try{
+ proxy.trustInEphemeralWindowsCI();await f.service.proxySave(undefined,{name:'Validated TLS proxy',protocol:'https',host:'127.0.0.1',port:proxy.port,username:'tls-user',password:'tls-test-password'});const p=f.service.create({name:'Trusted TLS routing',launchUrl:origin,proxyId:f.service.snapshot().proxies[0]!.id});await f.service.launch(p.id);
+ expect(await f.service.page(p.id).title()).toBe('Controlled local test');expect(proxy.stats.forwarded).toBeGreaterThan(0);expect(proxy.stats.challenges).toBeGreaterThan(0);await f.service.stop(p.id);
+ }finally{await f.service.shutdown();await proxy.close();}
+});
+
+test('real dead-manager/live-Chromium orphan remains locked and only verified owned processes are cleaned',async()=>{
+ const {build}=await import('esbuild'),{fork}=await import('node:child_process'),{randomUUID}=await import('node:crypto'),{chromium}=await import('playwright'),{ownedProcesses}=await import('../src/main/process-ownership'),{Service}=await import('../src/main/service'),{verifyRuntime}=await import('../src/shared/runtime-integrity');
+ const executable=chromium.executablePath(),manifest=JSON.parse(fs.readFileSync(path.resolve(`scripts/runtime-manifests/${process.platform}-x64-chromium-156.0.8078.4.json`),'utf8'));verifyRuntime(path.dirname(path.dirname(executable)),manifest);
+ const p=f.service.create({name:'Real orphan'}),launchId=randomUUID(),worker=path.join(f.root,'orphan-manager.cjs');await build({entryPoints:['tests/fixtures/orphan-manager.ts'],bundle:true,platform:'node',format:'cjs',outfile:worker});
+ const manager=fork(worker,[],{stdio:['ignore','ignore','ignore','ipc']}),dead=new Promise<void>(resolve=>manager.once('exit',()=>resolve()));let browserPid:number|undefined;
+ try{
+  const ready=new Promise<{browserPid:number}>((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Orphan fixture startup timeout')),20000);manager.once('message',message=>{clearTimeout(timer);resolve(message as {browserPid:number});});manager.once('error',reject);});
+  manager.send({directory:p.directory,executable,profileId:p.id,launchId});browserPid=(await ready).browserPid;expect(browserPid).toBeGreaterThan(0);
+  expect(ownedProcesses(launchId,p.directory,executable)?.some(x=>x.pid===browserPid)).toBe(true);f.db.transaction(()=>f.db.run('INSERT INTO launches VALUES(?,?,?,NULL,NULL)',[launchId,p.id,new Date().toISOString()]));
+  manager.kill('SIGKILL');await dead;expect(ownedProcesses(launchId,p.directory,executable)?.some(x=>x.pid===browserPid)).toBe(true);
+  const recovered=new Service(f.db,f.root,f.secrets,true);await expect(recovered.launch(p.id)).rejects.toThrow('locked');expect(fs.existsSync(path.join(p.directory,'.phantom-lock'))).toBe(true);expect(f.db.rows('SELECT outcome FROM launches WHERE id=?',[launchId])[0]?.outcome).toBe('recovery_required');await recovered.shutdown();
+ }finally{
+  if(manager.exitCode===null&&manager.signalCode===null){manager.kill('SIGKILL');await dead;}
+  const identities=ownedProcesses(launchId,p.directory,executable);if(browserPid&&identities?.some(x=>x.pid===browserPid)){process.kill(browserPid,'SIGTERM');await expect.poll(()=>ownedProcesses(launchId,p.directory,executable),{timeout:15000}).toEqual([]);}
+ }
+});

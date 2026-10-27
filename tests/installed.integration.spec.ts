@@ -60,3 +60,23 @@ test('installed packaged browser measures coherent persisted fingerprints and na
   const {processId:ignored,...evidence}=second;void ignored;fs.writeFileSync(testInfo.outputPath('installed-fingerprint.json'),JSON.stringify({source:'actual installed Windows EXE and bundled Chromium',result:evidence},null,2));
  }finally{await app.close();await new Promise<void>(resolve=>server.close(()=>resolve()));fs.rmSync(root,{recursive:true,force:true});}
 });
+
+test('installed Electron termination preserves session data and ownership-aware browser recovery',async()=>{
+ test.skip(process.platform!=='win32'||!process.env.PHANTOM_INSTALLED_EXE,'Requires installed Windows application');
+ const {ownedProcesses}=await import('../src/main/process-ownership');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'phantom-installed-crash-')),executable=process.env.PHANTOM_INSTALLED_EXE!,browserExecutable=path.join(path.dirname(executable),'resources','browser-runtime','chromium-1248','chrome-win64','chrome.exe');
+ const args=[`--user-data-dir=${root}`];let app=await electron.launch({executablePath:executable,args});let saved:{id:string;directory:string;launchId:string;chromiumPid?:number}|undefined;
+ try{
+  let page=await app.firstWindow();const created=await page.evaluate(()=>window.phantom!.request({action:'create',input:{name:'Crash persistence',notes:'preserved after manager termination',tags:[],proxyId:null,launchUrl:'',config:{version:1,viewport:{width:1280,height:720},locale:'en-US',timezoneId:'UTC',colorScheme:'dark',reducedMotion:'no-preference'}}}));if(!created.ok)throw Error(created.error);const p=created.snapshot.profiles[0]!;
+  const launched=await page.evaluate(id=>window.phantom!.request({action:'launch',id}),p.id);expect(launched.ok).toBe(true);const lock=JSON.parse(fs.readFileSync(path.join(p.directory,'.phantom-lock','metadata.json'),'utf8'));
+  expect(lock.electronPid).toBe(app.process().pid);saved={id:p.id,directory:p.directory,launchId:lock.launchId,chromiumPid:lock.chromiumPid};
+  const exited=new Promise<void>(resolve=>app.process().once('exit',()=>resolve()));app.process().kill('SIGKILL');await exited;
+  app=await electron.launch({executablePath:executable,args});page=await app.firstWindow();const snapshot=await page.evaluate(()=>window.phantom!.request({action:'snapshot'}));expect(snapshot.ok).toBe(true);if(!snapshot.ok)throw Error(snapshot.error);expect(snapshot.snapshot.profiles.find(x=>x.id===p.id)?.notes).toBe('preserved after manager termination');
+  const identities=ownedProcesses(saved.launchId,p.directory,browserExecutable);expect(identities).not.toBe(null);const retry=await page.evaluate(id=>window.phantom!.request({action:'launch',id}),p.id);
+  if(identities?.length){expect(retry.ok).toBe(false);expect(fs.existsSync(path.join(p.directory,'.phantom-lock'))).toBe(true);}else if(retry.ok){expect(retry.snapshot.profiles.find(x=>x.id===p.id)?.status).toBe('running');expect((await page.evaluate(id=>window.phantom!.request({action:'stop',id}),p.id)).ok).toBe(true);}else{expect(retry.error).toContain('locked');}
+ }finally{
+  await app.close().catch(()=>{});
+  if(saved){const owned=ownedProcesses(saved.launchId,saved.directory,browserExecutable),rootBrowser=owned?.find(x=>x.pid===saved!.chromiumPid);if(rootBrowser){process.kill(rootBrowser.pid,'SIGTERM');await expect.poll(()=>ownedProcesses(saved!.launchId,saved!.directory,browserExecutable),{timeout:15000}).toEqual([]);}}
+  fs.rmSync(root,{recursive:true,force:true});
+ }
+});

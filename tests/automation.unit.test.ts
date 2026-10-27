@@ -61,3 +61,9 @@ it('makes every step independently attributable with required duration',async()=
  const p=f.service.create({name:'Step attribution'});mockPage();await f.service.automate(p.id,[{action:'title'},{action:'fill',selector:'#field',value:'SECRET'}]);
  const r=report();for(const step of r.report){expect(step.runId).toBe(r.runId);expect(step.profileId).toBe(p.id);expect(step.durationMs).toBeTypeOf('number');expect(step.durationMs).toBeGreaterThanOrEqual(0);}
 });
+it.each(['navigate','title','screenshot','wait','click','fill'] as const)('records a sanitized attributable failure for %s',async action=>{
+ const p=f.service.create({name:'Failure coverage'}),{page,locator}=mockPage();const failed=Error('token=PRIVATE_RAW_ERROR');
+ const steps={navigate:{action:'navigate',url:'http://localhost/'},title:{action:'title'},screenshot:{action:'screenshot'},wait:{action:'wait',selector:'#field'},click:{action:'click',selector:'#field'},fill:{action:'fill',selector:'#field',value:'PRIVATE_FILL'}} as const;
+ if(action==='navigate')page.goto.mockRejectedValue(failed);else if(action==='title')page.title.mockRejectedValue(failed);else if(action==='screenshot')page.screenshot.mockRejectedValue(failed);else if(action==='wait')locator.waitFor.mockRejectedValue(failed);else if(action==='click')locator.click.mockRejectedValue(failed);else locator.fill.mockRejectedValue(failed);
+ await f.service.automate(p.id,[steps[action],{action:'delay',milliseconds:1}]);const r=report();expect(r.report).toHaveLength(1);expect(r.outcome).toBe('failure');expect(r.report[0]).toMatchObject({runId:r.runId,profileId:p.id,action,outcome:'failure'});expect(r.report[0].durationMs).toBeGreaterThanOrEqual(0);expect(JSON.stringify(r)).not.toContain('PRIVATE_');
+});

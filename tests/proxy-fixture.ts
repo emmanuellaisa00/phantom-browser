@@ -1,21 +1,23 @@
 // Local-only integration fixtures; never a production proxy or external service.
 import http from 'node:http';
+import https from 'node:https';
 import net from 'node:net';
 function sockets(server:net.Server) {
  const active=new Set<net.Socket>();server.on('connection',s=>{active.add(s);s.on('error',()=>{});s.on('close',()=>active.delete(s));});
  return {track(s:net.Socket){active.add(s);s.on('error',()=>{});s.on('close',()=>active.delete(s));},async close(){for(const s of active)s.destroy();if(!server.listening)return;await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }
-export async function httpProxy(port:number, credentials?:string) {
+export async function httpProxy(port:number, credentials?:string, tls?:https.ServerOptions) {
  const stats={forwarded:0,challenges:0};
  const authenticate=(req:http.IncomingMessage)=>!credentials||req.headers['proxy-authorization']===`Basic ${Buffer.from(credentials).toString('base64')}`;
- const server=http.createServer((req,res)=>{
+ const handler:http.RequestListener=(req,res)=>{
   if(!authenticate(req)){stats.challenges++;res.writeHead(407,{'Proxy-Authenticate':'Basic realm="Controlled local fixture"'});res.end();return;}
   let target:URL;try{target=new URL(req.url!);}catch{res.writeHead(400);res.end();return;}
   if(target.hostname!=='127.0.0.1'||Number(target.port)!==port||target.protocol!=='http:'){res.writeHead(403);res.end();return;}
   stats.forwarded++;const headers={...req.headers};delete headers['proxy-authorization'];delete headers['proxy-connection'];
   const outgoing=http.request(target,{method:req.method,headers},upstream=>{res.writeHead(upstream.statusCode??502,upstream.headers);upstream.pipe(res);});
   outgoing.on('socket',s=>lifecycle.track(s));outgoing.on('error',()=>{res.writeHead(502);res.end();});req.pipe(outgoing);
- });
+ };
+ const server=tls?https.createServer(tls,handler):http.createServer(handler);
  // Background Chromium HTTPS traffic is deliberately denied, not sent externally.
  server.on('connect',(_req,socket)=>socket.end('HTTP/1.1 403 Forbidden\r\n\r\n'));
  const lifecycle=sockets(server);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
