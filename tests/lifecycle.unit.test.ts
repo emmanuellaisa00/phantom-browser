@@ -119,3 +119,10 @@ it('startup keeps unresolved launch history open while an orphan lock exists', (
   const record = f.db.rows('SELECT ended_at,outcome FROM launches')[0];
   expect(record?.ended_at).toBe(null); expect(record?.outcome).toBe('recovery_required');
 });
+it('repeated shutdown is idempotent and reports rejected browser closes without raw errors',async()=>{
+ const {context}=browser(),p=f.service.create({name:'Shutdown report'});await f.service.launch(p.id);context.close.mockRejectedValue(Error('PRIVATE_CLOSE_ERROR'));
+ await Promise.all([f.service.shutdown(),f.service.shutdown()]);expect(context.close).toHaveBeenCalledTimes(1);expect(f.service.snapshot().logs.some(l=>l.message.includes('Shutdown incomplete'))).toBe(true);expect(JSON.stringify(f.service.snapshot())).not.toContain('PRIVATE_CLOSE_ERROR');expect(fs.existsSync(path.join(p.directory,'.phantom-lock'))).toBe(true);
+});
+it('a replaced lock owner is retained and reported as recovery required, not idle success',async()=>{
+ const {context}=browser(),p=f.service.create({name:'Replacement report'});await f.service.launch(p.id);const file=path.join(p.directory,'.phantom-lock','metadata.json'),meta=JSON.parse(fs.readFileSync(file,'utf8'));meta.launchId=randomUUID();fs.writeFileSync(file,JSON.stringify(meta));await context.close();expect(fs.existsSync(file)).toBe(true);expect(f.service.profile(p.id).lastError).toContain('ownership changed');
+});

@@ -293,9 +293,9 @@ export class Service {
   private release(id: string, r: Runtime) {
     try {
       const meta = this.readLock(id);
-      if (meta.launchId !== r.launchId || meta.electronPid !== process.pid) return;
+      if (meta.launchId !== r.launchId || meta.electronPid !== process.pid) {this.patch(id,{lastError:'Browser lock ownership changed; lock retained for manual recovery.'});this.log(`Profile ${id} lock ownership changed; retained`);return;}
       fs.rmSync(path.join(this.directory(id), '.phantom-lock'), {recursive: true});
-    } catch {this.log(`Profile ${id} lock retained; manual recovery may be required`);}
+    } catch {this.patch(id,{lastError:'Browser lock could not be released safely; manual recovery required.'});this.log(`Profile ${id} lock retained; manual recovery may be required`);}
   }
 
   private recoverOrphans() {
@@ -469,7 +469,7 @@ export class Service {
   async shutdown() {
     if (this.shutdownWork) return this.shutdownWork;
     this.shuttingDown = true;
-    this.shutdownWork = this.bounded(Promise.allSettled([...this.running.keys()].map(id => this.stop(id))).then(() => undefined), 41000).catch(() => {this.log('Shutdown deadline reached; uncertain browser locks retained');}).finally(() => {this.closedForUpdates = true;});
+    this.shutdownWork = this.bounded(Promise.allSettled([...this.running.keys()].map(id => this.stop(id))).then(results => {const failed=results.filter(r=>r.status==='rejected').length;if(failed)this.log(`Shutdown incomplete: ${failed} browser close operation(s) failed; uncertain locks retained`);}), 41000).catch(() => {this.log('Shutdown deadline reached; uncertain browser locks retained');}).finally(() => {this.closedForUpdates = true;});
     return this.shutdownWork;
   }
 
