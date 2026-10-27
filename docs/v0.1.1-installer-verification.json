@@ -1,0 +1,10 @@
+{
+  "run": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692",
+  "artifact": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692/artifacts/12714815352",
+  "file": "Phantom-Browser-Setup-0.1.1-x64.exe",
+  "bytes": 297316237,
+  "sha256": "5a6bd724842998cda204b8c7d75e2dc19140bd13d63c9a911fb811cab764cdc8",
+  "artifact_sha256": "53d10f0309468e4685b784cc6203b6331f9af747329c5ea3a4813fd76447e0d4",
+  "published": false,
+  "commit": "68c741d6f0e1bd0266d76ff77e046e34e382b237"
+}

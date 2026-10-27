@@ -1,6 +1,6 @@
 # v0.1.1 remediation and validation report
 
-Status: **candidate, not released**. Source baseline: upstream `316dcb0` (v0.1.0 release line). Work preserves the existing Electron/React/TypeScript/Playwright architecture and all original tests. User authorized a new review-branch push and Windows CI only; no release publication or asset overwrite is authorized.
+Status: **Linux and hosted-Windows CI validated candidate, not released**. Validation date: 2026-10-27. Source baseline: upstream `316dcb0` (v0.1.0 release line). Work preserves the existing Electron/React/TypeScript/Playwright architecture and all original tests. User authorized a new review-branch push and Windows CI only; no release publication or asset overwrite is authorized.
 
 ## Findings and reproduction
 
@@ -64,7 +64,38 @@ Environment: Linux x64 sandbox; Node 24.22.0 installed for the pinned runtime to
 | `npm run dist:win` | Exit 1 as intended on Linux: refuses wrong-platform runtime; no v0.1.1 installer built locally |
 | `npm run licenses` | Passed; actual bundled ABOUT/notice location reported |
 
-Windows review-branch CI is authorized, but has not run for this candidate at this checkpoint. No Windows v0.1.1, installation, DPAPI or Windows 10/11 compatibility success is claimed here.
+### Verified Windows CI and installer bytes
+
+Successful build-only run: https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692
+
+Tested source commit: `68c741d6f0e1bd0266d76ff77e046e34e382b237`, branch `fix/v0.1.1-hardening`. Hosted runner log identifies **Microsoft Windows Server 2025 x64**, not a Windows 10/11 desktop. Both jobs concluded success; individual step logs were downloaded and checked, not inferred solely from a green overall build.
+
+| Actual Windows workflow command | Verified result |
+|---|---|
+| `npm ci` | Passed |
+| `npm run provision` / `npm run verify:runtime` | Pinned archive and 307 Windows runtime files passed |
+| `npm run typecheck` / `npm run lint` | Passed |
+| `npm test` | 62 passed |
+| `npm run test:runtime` | 12 passed |
+| `npm run test:integration` | 11 passed |
+| `npm run build` | Passed |
+| `npm run test:desktop` | 3 passed, including actual Windows DPAPI and renderer isolation/navigation checks |
+| `npm run dist:win` | NSIS Windows x64 setup built successfully |
+| Silent setup installation, then `npm run test:installed` | Exit 0, 1 test passed: installed app launches bundled browser offline, rejects altered runtime, relaunches after original bytes restored |
+| PowerShell `Get-FileHash ... -Algorithm SHA256` | Checksum asset generated after tested installer build |
+
+**Artifact download** (GitHub login may be required): https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692/artifacts/12714815352
+
+The artifact ZIP contains one setup executable and its checksum text file. Artifact: `Phantom-Browser-Windows-Setup`; setup: `Phantom-Browser-Setup-0.1.1-x64.exe`, **297,316,237 bytes**.
+
+Independently downloaded the CI artifact after the run and recomputed both the complete ZIP digest and the setup EXE digest. They matched the Actions artifact digest and the embedded `.sha256` file respectively:
+
+```text
+EXE SHA256: 5a6bd724842998cda204b8c7d75e2dc19140bd13d63c9a911fb811cab764cdc8
+ZIP SHA256: 53d10f0309468e4685b784cc6203b6331f9af747329c5ea3a4813fd76447e0d4
+```
+
+No release/tag was published, no main-branch merge performed and no existing assets overwritten. Windows 10/11 manual install/upgrade/uninstall and broad hardware/network behavior remain unverified; hosted Server 2025 tests do not establish those claims.
 
 ## Runtime trust provenance and limits
 
@@ -84,8 +115,8 @@ For this work, Linux ZIPs were independently fetched via the Playwright CDN and 
 
 ## Steps to produce the release
 
-1. Finish the exact local command reruns above, then push the authorized review branch and run the read-only build workflow against that branch.
-2. Require Windows unit/runtime/browser/desktop tests (including real DPAPI), build/NSIS packaging, actual setup installation and installed bundled-browser/tamper/recovery test to pass. Investigate failures; do not skip them.
+1. Completed: exact local command reruns, authorized review-branch push and read-only workflow dispatch; verified run/commit/artifact above.
+2. Completed on hosted Windows Server 2025: all required Windows unit/runtime/browser/desktop, DPAPI, NSIS setup/install and installed tamper/recovery checks passed. No existing test was removed, weakened or newly skipped.
 3. Manually validate install, relaunch, profile persistence, upgrade and uninstall-retains-data on Windows 10 and 11 x64. Verify any intended signature explicitly; otherwise label installer unsigned.
 4. Review code, remaining risks and trust pins. Obtain separate authorization to merge and publish.
-5. Download the exact tested installer artifact, independently recompute SHA256 and compare its `.sha256`. Only then publish a new v0.1.1 release with that installer, checksum, test run/commit references and known limitations. Never overwrite v0.1.0 assets.
+5. Installer artifact/hash verification is completed above. Recheck the exact bytes before publishing. Only after separate approval publish a new v0.1.1 release with that installer, checksum, test run/commit references and known limitations. Never overwrite v0.1.0 assets.

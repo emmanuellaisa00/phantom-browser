@@ -1,4 +1,4 @@
-> v0.1.1 is a candidate under review. The public installer described below is still v0.1.0 until a separately authorized v0.1.1 release is published. Current validation: [SECURITY_REMEDIATION.md](../SECURITY_REMEDIATION.md).
+> v0.1.1 is a CI-tested candidate under review (hosted Windows Server 2025); not a published release. The public installer described below is still v0.1.0 until a separately authorized v0.1.1 release is published. Current validation: [SECURITY_REMEDIATION.md](../SECURITY_REMEDIATION.md).
 
 # Windows installation
 
