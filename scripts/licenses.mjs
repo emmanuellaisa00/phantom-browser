@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-const wanted = ['electron','playwright','playwright-core','react','react-dom','sql.js','zod','yauzl','vite','vitest','esbuild','typescript','electron-builder','tailwindcss'];
+const wanted = ['jose','electron','playwright','playwright-core','react','react-dom','sql.js','zod','yauzl','vite','vitest','esbuild','typescript','electron-builder','tailwindcss'];
 const pkgs = wanted.map(n => {
   try {
     const p = JSON.parse(fs.readFileSync(`node_modules/${n}/package.json`,'utf8'));

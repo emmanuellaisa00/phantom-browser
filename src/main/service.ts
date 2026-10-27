@@ -4,6 +4,8 @@ import {randomUUID, createHash} from 'node:crypto';
 import {gzipSync, gunzipSync} from 'node:zlib';
 import {chromium, type BrowserContext, type Page} from 'playwright';
 import {z} from 'zod';
+import {fingerprintIssues} from './fingerprint';
+import {encryptBackup, decryptBackup} from './encrypted-backup';
 import {Database} from './database';
 import {runAutomation, type Job} from './automation';
 import {requestSchema} from '../shared/schema';
@@ -137,7 +139,7 @@ export class Service {
     const id = randomUUID();
     fs.mkdirSync(this.directory(id));
     const p: Profile = {
-      ...v, id, createdAt: now(), updatedAt: now(), lastLaunch: null,
+      ...v, description:v.description??'', homepage:v.homepage??'', startupUrls:v.startupUrls??[], archivedAt:null, lastUsed:null, id, createdAt: now(), updatedAt: now(), lastLaunch: null,
       engineVersion: 'Not launched', lastError: null, status: 'stopped',
       directory: this.directory(id),
     };
@@ -148,6 +150,19 @@ export class Service {
       fs.rmSync(this.directory(id), {recursive: true, force: true});
       throw e;
     }
+  }
+
+  archive(id: string, archived: boolean) {
+    this.assertIdle(id);
+    this.patch(id, {archivedAt: archived ? now() : null});
+    this.log(`Profile ${id} ${archived ? 'archived' : 'unarchived'}`);
+  }
+
+  async home(id: string) {
+    const p = this.profile(id);
+    if (!p.homepage) throw Error('Configure a homepage first');
+    await this.page(id).goto(p.homepage, {timeout:15000, waitUntil:'domcontentloaded'});
+    this.patch(id, {lastUsed:now()});
   }
 
   edit(id: string, input: unknown) {
@@ -318,8 +333,11 @@ export class Service {
   async launch(id: string): Promise<BrowserContext> {
     this.assertIdle(id, true);
     const p = this.profile(id);
+    if (p.archivedAt) throw Error('Restore the archived profile before launching');
     if (this.running.size >= this.maxConcurrent()) throw Error('Concurrent profile limit reached; change Settings if resources permit');
     configSchema.parse(p.config);
+    const issues=fingerprintIssues(p.config,process.platform,linuxManifest.version);
+    if(issues.length)throw Error(issues.join('; '));
     const r: Runtime = {launchId: randomUUID(), closing: false, electronPid: process.pid, browserMayExist: false};
     this.acquire(id, r.launchId);
     this.running.set(id, r);
@@ -339,7 +357,7 @@ export class Service {
         headless: this.headless, chromiumSandbox: !this.headless,
         ignoreDefaultArgs: ['--password-store=basic', '--use-mock-keychain'],
         proxy, ...this.options(p.config), acceptDownloads: false, timeout: 30000,
-        executablePath: chromium.executablePath(), args: [`--phantom-launch-id=${r.launchId}`],
+        executablePath: chromium.executablePath(), args: [`--phantom-launch-id=${r.launchId}`, ...(p.config.webrtcPolicy === 'disable-non-proxied-udp' ? ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] : [])],
       });
       r.context = context;
       context.on('close', () => {r.closed = true; r.settling = this.settleExit(id, r, r.closing ? 'stopped' : 'closed'); void r.settling.catch(() => {});});
@@ -357,9 +375,14 @@ export class Service {
       r.pid = owned?.find(p => p.pid === r.pid)?.pid ?? owned?.[0]?.pid;
       this.updateLock(id, r, 'running');
       if (r.closing || this.shuttingDown) {await this.closeRuntime(id, r); throw Error('Launch cancelled');}
-      this.patch(id, {engineVersion: context.browser()?.version() ?? 'Unknown', lastLaunch: now(), lastError: null});
+      this.patch(id, {engineVersion: context.browser()?.version() ?? 'Unknown', lastLaunch: now(), lastUsed:now(), lastError: null});
       const page = context.pages()[0] ?? await context.newPage();
-      if (p.launchUrl) await page.goto(p.launchUrl, {waitUntil: 'domcontentloaded', timeout: 30000});
+      const urls = p.startupUrls.length ? p.startupUrls : p.launchUrl ? [p.launchUrl] : p.homepage ? [p.homepage] : [];
+      for (const [index,url] of urls.entries()) {
+        if (r.closing || this.shuttingDown) throw Error('Launch cancelled');
+        const tab = index === 0 ? page : await context.newPage();
+        await tab.goto(url, {waitUntil:'domcontentloaded', timeout:15000});
+      }
       if (r.closing || this.shuttingDown || r.closed) throw Error('Launch cancelled');
       this.log(`Launched profile ${id}`);
       return context;
@@ -375,6 +398,7 @@ export class Service {
   private options(c: BrowserConfig) {
     return {
       viewport: c.viewport,
+      deviceScaleFactor: c.deviceScaleFactor ?? 1,
       screen: c.screen,
       locale: c.locale,
       timezoneId: c.timezoneId,
@@ -382,7 +406,7 @@ export class Service {
       reducedMotion: c.reducedMotion,
       userAgent: c.userAgent,
       geolocation: c.geolocation,
-      permissions: c.geolocation ? ['geolocation'] : [],
+      permissions: c.geolocation && c.geolocationPermission === 'allow' ? ['geolocation'] : [],
     };
   }
 
@@ -392,6 +416,7 @@ export class Service {
     const provenExit = owned !== null && owned.length === 0;
     if (!provenExit || (r.pid && this.isProcessAlive(r.pid))) return;
     this.running.delete(id);
+    this.patch(id, {lastUsed:now()});
     this.release(id, r);
     this.db.transaction(() => this.db.run('UPDATE launches SET ended_at=?,outcome=? WHERE id=? AND ended_at IS NULL', [now(), outcome, r.launchId]));
     const job = this.jobs.get(id); if (job?.running) job.cancelled = true;
@@ -465,6 +490,7 @@ export class Service {
     const data = {
       id: key,
       name: p.name,
+      region:p.region??'', latencyMs:null,
       protocol: p.protocol,
       host: p.host,
       port: p.port,
@@ -482,7 +508,8 @@ export class Service {
     this.db.transaction(() => this.db.run('DELETE FROM proxies WHERE id=?', [id]));
   }
 
-  async proxyTest(id: string) {
+  async proxyTest(id: string, endpoint = 'https://api.ipify.org?format=json') {
+    const started = performance.now();
     let context: BrowserContext | undefined;
     let result = 'Connection failed (credentials and raw errors withheld)';
     try {
@@ -496,7 +523,7 @@ export class Service {
       try {
         context = await browser.newContext();
         const page = await context.newPage();
-        const response = await page.goto('https://api.ipify.org?format=json', {timeout: 15000});
+        const response = await page.goto(endpoint, {timeout: 15000});
         if (!response?.ok()) throw Error();
         const body = z.object({ip: z.string().regex(/^[0-9a-fA-F:.]+$/)}).parse(await response.json());
         result = `Connected — public IP ${body.ip}`;
@@ -509,7 +536,7 @@ export class Service {
     const row = this.db.rows('SELECT data FROM proxies WHERE id=?', [id])[0];
     if (!row) throw Error('Proxy not found');
     const p = proxySchema.parse(JSON.parse(String(row.data)));
-    this.db.transaction(() => this.db.run('UPDATE proxies SET data=? WHERE id=?', [JSON.stringify({...p, lastTest: now(), result}), id]));
+    this.db.transaction(() => this.db.run('UPDATE proxies SET data=? WHERE id=?', [JSON.stringify({...p, lastTest: now(), result, latencyMs:Math.round(performance.now()-started)}), id]));
     return result;
   }
 
@@ -523,7 +550,7 @@ export class Service {
 
   async diagnose(id: string) {
     const page = this.page(id);
-    const observed = await page.evaluate(() => {
+    const observed = await page.evaluate(async () => {
       const canvas = document.createElement('canvas');
       const gl = canvas.getContext('webgl');
       return {
@@ -535,6 +562,11 @@ export class Service {
         screen: {width: screen.width, height: screen.height},
         colorScheme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
         reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+        devicePixelRatio,
+        deviceMemory:(navigator as Navigator & {deviceMemory?:number}).deviceMemory??null,
+        clientHints:(navigator as Navigator & {userAgentData?:{toJSON:()=>{platform:string;mobile:boolean;brands:{brand:string;version:string}[]}}}).userAgentData?.toJSON?.()??null,
+        geolocationPermission:await navigator.permissions.query({name:'geolocation'}).then(p=>p.state).catch(()=>'unavailable'),
+        capabilities:{canvas:!!document.createElement('canvas').getContext('2d'),audio:typeof AudioContext!=='undefined',webRTC:typeof RTCPeerConnection!=='undefined',mediaEnumeration:!!navigator.mediaDevices?.enumerateDevices},
         hardwareConcurrency: navigator.hardwareConcurrency,
         platform: navigator.platform,
         webglVendor: gl?.getParameter(gl.VENDOR) as string | null,
@@ -543,7 +575,9 @@ export class Service {
       };
     });
     const expected = this.profile(id).config;
-    const inconsistencies: string[] = [];
+    const inconsistencies = fingerprintIssues(expected,process.platform,linuxManifest.version);
+    if(Math.abs((expected.deviceScaleFactor??1)-observed.devicePixelRatio)>0.01)inconsistencies.push('Device pixel ratio differs');
+    if(expected.geolocationPermission==='allow'&&observed.geolocationPermission!=='granted')inconsistencies.push('Geolocation permission not granted');
     if (expected.userAgent && expected.userAgent !== observed.userAgent) inconsistencies.push('User agent mismatch');
     if (expected.timezoneId !== observed.timezone) inconsistencies.push('Timezone mismatch or canonical alias');
     if (expected.locale !== observed.language) inconsistencies.push('Locale mismatch');
@@ -551,7 +585,8 @@ export class Service {
     if (expected.screen && JSON.stringify(expected.screen) !== JSON.stringify(observed.screen)) inconsistencies.push('Screen differs');
     if (expected.colorScheme !== 'no-preference' && expected.colorScheme !== observed.colorScheme) inconsistencies.push('Color scheme differs');
     if ((expected.reducedMotion === 'reduce') !== observed.reducedMotion) inconsistencies.push('Reduced motion differs');
-    const result = {expected, observed, inconsistencies, processId: this.running.get(id)?.pid ?? null};
+    const limitations=['WebGL, hardware concurrency, device memory, canvas, audio, fonts and media identities use native browser behavior; they are not spoofed','WebRTC policy is a Chromium launch setting, not a public-IP or DNS leak guarantee','Custom UA does not automatically rewrite high-entropy client hints','No external DNS, STUN or fingerprint service is contacted by this diagnostic'];
+    const result = {expected, observed, inconsistencies, limitations, processId: this.running.get(id)?.pid ?? null};
     this.db.transaction(() => this.db.run('INSERT INTO diagnostics VALUES(?,?,?,?)', [randomUUID(), id, now(), JSON.stringify(result)]));
     return result;
   }
@@ -597,7 +632,7 @@ export class Service {
     };
   }
 
-  async backup(id: string, destination: string) {
+  async backup(id: string, destination: string, password?: string) {
     this.assertIdle(id);
     this.busy.add(id);
     try {
@@ -637,7 +672,8 @@ export class Service {
       };
       const json = JSON.stringify(manifest);
       if (Buffer.byteLength(json) > BACKUP_LIMITS.decompressed) throw Error('Backup manifest exceeds safety limit');
-      const bytes = gzipSync(json);
+      const compressed = gzipSync(json);
+      const bytes = password === undefined ? compressed : await encryptBackup(compressed,password);
       if (bytes.length > BACKUP_LIMITS.archive) throw Error('Backup archive exceeds safety limit');
       const tmp = target + '.' + randomUUID() + '.partial';
       try {
@@ -651,12 +687,18 @@ export class Service {
     }
   }
 
-  async restore(source: string) {
+  async restore(source: string, password?: string) {
     assertSafeParents(source);
     if (!fs.lstatSync(source).isFile() || fs.lstatSync(source).size > BACKUP_LIMITS.archive) throw Error('Backup archive too large or unsupported');
+    const input = readBoundedFile(source, BACKUP_LIMITS.archive);
+    const isGzip = input[0]===0x1f && input[1]===0x8b;
+    if(!isGzip&&!input.subarray(0,64).toString('ascii').startsWith('eyJ'))throw Error('Corrupt or unsupported backup');
+    if (!isGzip && password===undefined) throw Error('Encrypted backup requires a password');
+    if (isGzip && password!==undefined) throw Error('This backup is unencrypted; choose the unencrypted restore option');
+    const compressed = isGzip ? input : await decryptBackup(input,password!);
     let manifest: z.infer<typeof manifestSchema>;
     try {
-      manifest = manifestSchema.parse(JSON.parse(gunzipSync(readBoundedFile(source, BACKUP_LIMITS.archive), {maxOutputLength: BACKUP_LIMITS.decompressed}).toString('utf8')));
+      manifest = manifestSchema.parse(JSON.parse(gunzipSync(compressed, {maxOutputLength: BACKUP_LIMITS.decompressed}).toString('utf8')));
     } catch {
       throw Error('Corrupt or unsupported backup');
     }
@@ -694,7 +736,7 @@ export class Service {
 }
 
 function pickInput(p: Profile) {
-  return {name: p.name, notes: p.notes, tags: p.tags, config: p.config, proxyId: p.proxyId, launchUrl: p.launchUrl};
+  return {name: p.name, description:p.description, homepage:p.homepage, startupUrls:p.startupUrls, notes: p.notes, tags: p.tags, config: p.config, proxyId: p.proxyId, launchUrl: p.launchUrl};
 }
 
 export function safeArchivePath(name: string) {

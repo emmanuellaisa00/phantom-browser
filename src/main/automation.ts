@@ -11,6 +11,7 @@ interface StepRecord {
   action: z.infer<typeof stepSchema>['action'];
   startedAt: string;
   completedAt: string;
+  durationMs?:number;
   outcome: 'success' | 'failure' | 'cancelled';
   error?: string;
   screenshot?: string;
@@ -25,6 +26,7 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
   const steps = z.array(stepSchema).min(1).max(100).parse(rawSteps);
   const jobId = randomUUID();
   const startedAt = now();
+  const startedClock = performance.now();
   const records: StepRecord[] = [];
   let outcome: 'success' | 'failure' | 'cancelled' = 'success';
   try {
@@ -37,9 +39,16 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
     for (const [index, step] of steps.entries()) {
       const record: StepRecord = {step: index + 1, action: step.action, startedAt: now(), completedAt: '', outcome: 'cancelled'};
       records.push(record);
+      const stepClock = performance.now();
       try {
         if (job.cancelled) throw Error('Cancelled');
         switch (step.action) {
+          case 'url': page.url(); record.metadata = {content:'omitted for privacy'}; break;
+          case 'delay': {
+            const end = performance.now() + step.milliseconds;
+            while (!job.cancelled && performance.now() < end) await new Promise(resolve=>setTimeout(resolve, Math.min(50, Math.max(1,end-performance.now()))));
+            break;
+          }
           case 'navigate': await page.goto(step.url, {timeout: 15000, waitUntil: 'domcontentloaded'}); break;
           case 'title': await page.title(); record.metadata = {content: 'omitted for privacy'}; break;
           case 'screenshot': {
@@ -61,6 +70,7 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
         record.error = job.cancelled ? 'Operation cancelled.' : 'Browser operation failed; sensitive details withheld.';
       } finally {
         record.completedAt = now();
+        record.durationMs = Math.round(performance.now()-stepClock);
       }
       if (record.outcome !== 'success') {outcome = record.outcome; break;}
       job.message = `Completed step ${index + 1}/${steps.length}`;
@@ -70,7 +80,7 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
   }
   if (job.cancelled) outcome = 'cancelled';
   job.message = outcome === 'success' ? 'Completed' : outcome === 'cancelled' ? 'Stopped' : 'Failed; browser operation did not complete';
-  const report = {format: 'phantom-automation-report', version: 1, jobId, profileId, startedAt, completedAt: now(), outcome, plannedSteps: steps.length, attemptedSteps: records.length, report: records};
+  const report = {format: 'phantom-automation-report', version: 1, jobId, runId:jobId, durationMs:Math.round(performance.now()-startedClock), profileId, startedAt, completedAt: now(), outcome, plannedSteps: steps.length, attemptedSteps: records.length, report: records};
   const destination = path.join(directory, `${profileId}-${jobId}.json`);
   const temporary = destination + '.partial';
   try {
