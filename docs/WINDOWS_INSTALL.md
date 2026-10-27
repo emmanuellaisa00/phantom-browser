@@ -1,4 +1,4 @@
-> Published latest installer: v0.1.1. This branch is unreleased 0.2.0-dev.1; its Windows build is pending authenticated CI. Historical Windows Server 2025 evidence does not validate new changes.
+> Published latest installer: v0.1.1. The development prerelease v0.2.0-dev.1 is also published after successful Linux/Windows Server 2025 CI run 40507389557, including DPAPI and installed-runtime tamper/repair. v0.1.1 remains latest stable. Manual consumer Windows 10/11 upgrade/uninstall checks remain pending.
 
 # Windows installation
 
@@ -13,7 +13,7 @@ Release publication is gated by Linux checks, Windows browser and DPAPI tests, a
 
 The installer is currently unsigned. SmartScreen may warn. Confirm the repository and optionally compare SHA256 with the release checksum. Do not turn off Windows security protections to run an untrusted download.
 
-Profile data is stored under the application's Windows user-data directory, separate from installation files, and retained by uninstall. Keep backups before upgrades. Published v0.1.1 backups are **not encrypted**. The unreleased 0.2 development branch offers authenticated password-encrypted JWE, while legacy gzip remains unencrypted. Cookies protected by Windows may not transfer to another computer or user.
+Profile data is stored under the application's Windows user-data directory, separate from installation files, and retained by uninstall. Keep backups before upgrades. Published v0.1.1 backups are **not encrypted**. The 0.2 development prerelease offers authenticated password-encrypted JWE, while legacy gzip remains unencrypted. Cookies protected by Windows may not transfer to another computer or user.
 
 ## Runtime provenance
 

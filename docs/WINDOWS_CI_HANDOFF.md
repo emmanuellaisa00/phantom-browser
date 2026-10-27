@@ -1,3 +1,5 @@
+> **Completed:** branch pushed, CI 40507389557 passed, and user-authorized v0.2.0-dev.1 prerelease published. The instructions below describe the earlier unauthenticated handoff and remain reference-only. See V02_IMPLEMENTATION.md for current evidence.
+
 # Authenticated push and Windows CI handoff
 
 The development branch is committed locally but this sandbox has no GitHub credentials. Do **not** post access tokens in chat or put them in repository files/remote URLs. Use your own already-authenticated Git checkout to push the supplied **`phantom-local-workspaces-v02.bundle`**. It contains the complete branch history, not a patch that discards prior work.

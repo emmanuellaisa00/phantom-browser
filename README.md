@@ -4,7 +4,7 @@ Free, local-first Electron + React + SQLite + Playwright Chromium profile manage
 
 **Published release:** [v0.1.1 Windows x64 setup](https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.1.1/Phantom-Browser-Setup-0.1.1-x64.exe), SHA256 `5a6bd724842998cda204b8c7d75e2dc19140bd13d63c9a911fb811cab764cdc8`. The installer is unsigned. v0.1.0 remains untouched.
 
-**This branch:** `0.2.0-dev.1`, unreleased development work. Local tests are recorded in [the implementation report](docs/V02_IMPLEMENTATION.md). **No new Windows CI result, release or main merge is implied.**
+**Development prerelease:** [v0.2.0-dev.1 Windows x64 setup](https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.2.0-dev.1/Phantom-Browser-Setup-0.2.0-dev.1-x64.exe). Published after [Linux and Windows Server 2025 CI passed](https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40507389557), including DPAPI, the actual installer and installed-runtime tamper/repair. SHA256 `7b03512149e1ee4bcdc2291f9426c8ae71ddea7fc0157aa6c04953fda34ab68e`. **Unsigned development prerelease, not production-approved.** Manual consumer Windows 10/11 upgrade/uninstall checks remain pending. v0.1.1 remains latest stable; no main merge. See [implementation/evidence](docs/V02_IMPLEMENTATION.md).
 
 ![Dashboard](docs/desktop-dashboard.png)
 ![Browser profiles](docs/desktop-profiles.png)

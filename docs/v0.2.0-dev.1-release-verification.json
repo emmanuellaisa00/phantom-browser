@@ -1,0 +1,45 @@
+{
+  "run_id": 40507389557,
+  "run_url": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40507389557",
+  "commit": "e6089a8aaa0814f82558f4ed11dbea5d52934042",
+  "conclusion": "success",
+  "artifact_id": 12735913578,
+  "artifact_zip_sha256": "c5995ee3d22004579e5f28c503513c57ac62fc4c2818ebbe7f9cecf98495c439",
+  "installer": "Phantom-Browser-Setup-0.2.0-dev.1-x64.exe",
+  "installer_size": 297340268,
+  "installer_sha256": "7b03512149e1ee4bcdc2291f9426c8ae71ddea7fc0157aa6c04953fda34ab68e",
+  "jobs": [
+    {
+      "id": 122200080551,
+      "name": "linux-checks",
+      "conclusion": "success"
+    },
+    {
+      "id": 122200821235,
+      "name": "windows-installer",
+      "conclusion": "success"
+    }
+  ],
+  "tag": "v0.2.0-dev.1",
+  "release_id": 425469022,
+  "release_url": "https://github.com/emmanuellaisa00/phantom-browser/releases/tag/v0.2.0-dev.1",
+  "published_at": "2026-10-27T13:03:40Z",
+  "prerelease": true,
+  "stable_latest": "v0.1.1",
+  "assets": [
+    {
+      "id": 681618314,
+      "name": "Phantom-Browser-Setup-0.2.0-dev.1-x64.exe",
+      "size": 297340268,
+      "digest": "sha256:7b03512149e1ee4bcdc2291f9426c8ae71ddea7fc0157aa6c04953fda34ab68e",
+      "browser_download_url": "https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.2.0-dev.1/Phantom-Browser-Setup-0.2.0-dev.1-x64.exe"
+    },
+    {
+      "id": 681618764,
+      "name": "Phantom-Browser-Setup-0.2.0-dev.1-x64.exe.sha256",
+      "size": 109,
+      "digest": "sha256:bfc0da6d06dce3153a99bfd2355d8d841722e7982f0935584b41252652d73980",
+      "browser_download_url": "https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.2.0-dev.1/Phantom-Browser-Setup-0.2.0-dev.1-x64.exe.sha256"
+    }
+  ]
+}

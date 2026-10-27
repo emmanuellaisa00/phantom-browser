@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.2.0-dev.1 — unreleased
+## 0.2.0-dev.1 — published development prerelease
+
+Published the exact installer from successful CI run 40507389557 at source e6089a8. Windows Server 2025: 73 unit / repeated runtime 12 / browser 20 / Electron+DPAPI 4 / installed corruption-repair 1 passed. Manual Windows 10/11 checks and signing remain pending. v0.1.1 stays latest stable; no main merge.
 
 - Add non-destructive archive/unarchive, description and last session-activity metadata, bounded startup URLs/homepage and opt-in native tab/session restoration; legacy JSON fields load with additive defaults.
 - Four-step profile wizard, typed browser preference controls, archive filter/recently-used sort, sequential bulk requests and encryption/restore dialogs. Version labels come from package.json.
@@ -9,7 +11,7 @@
 - Add bounded delay/current-URL/exact-URL/title/selector-state automation steps and report run IDs/durations; preserve private result/criterion omission and masked screenshots.
 - Add authenticated compact-JWE password backups using pinned jose/WebCrypto and bounded PBES2/AES-GCM algorithms; retain gzip compatibility and authenticate before extracting any files. No password recovery or plaintext password persistence.
 - Reproduce/fix proxy-save race when a profile starts while DPAPI encryption is pending; reject writes after shutdown. Keep process-ownership, archive limits and strict IPC security intact.
-- Actual local evidence and incomplete Windows/production gates: [implementation report](docs/V02_IMPLEMENTATION.md). No release or merge authorized.
+- Actual local evidence and incomplete Windows/production gates: [implementation report](docs/V02_IMPLEMENTATION.md). Prerelease publication subsequently authorized; no main merge authorized.
 
 ## 0.1.1 — published
 

@@ -2,7 +2,7 @@
 
 **2026-10-27 · 0.2.0-dev.1 · branch `feat/local-workspaces-v0.2`**
 
-**Status: substantial staged implementation, not production-complete.** Actual tested code commit: `6656c90027a8e963f321a2115c87b98125d1221c`. Documentation commits may follow without changing that code. No new release was published and no main merge was performed. Existing published v0.1.1 and v0.1.0 assets were not changed.
+**Status: published development prerelease, not production-complete.** Actual tested code commit: `6656c90027a8e963f321a2115c87b98125d1221c`. Documentation commits may follow without changing that code. The user subsequently authorized [v0.2.0-dev.1 prerelease publication](https://github.com/emmanuellaisa00/phantom-browser/releases/tag/v0.2.0-dev.1) from exact CI source `e6089a8`; no main merge was performed. Existing published v0.1.1 and v0.1.0 assets were not changed.
 
 ## Audit and implementation order
 
@@ -13,7 +13,7 @@ Local implementation commits:
 - `079ea09`: guided UI, proxy/preference integration fixtures, DPAPI-save race guard.
 - `6656c90`: native session restoration, private conditional automation, Electron regressions and development CI trigger.
 
-These are local commits. **A dry-run push was rejected because this restored workspace has no GitHub credentials.** The GitHub connector lookup reported unsupported. There is no new remote branch or Windows run to cite. The workflow accepts an authorized push to this exact feature branch or manual dispatch and retains read-only permissions/no automatic publication.
+The branch was subsequently pushed with explicitly supplied ephemeral authentication. [CI 40507389557](https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40507389557) passed on Linux and hosted Windows Server 2025. The exact CI EXE/checksum were downloaded, independently rehashed and published as the user-authorized **prerelease**, not the latest stable release. v0.1.1 remains latest stable; v0.1.0/v0.1.1 assets are untouched. Public release/asset hashes: [verification JSON](v0.2.0-dev.1-release-verification.json). Documentation-only follow-up commits do not replace the tested installer/source tag.
 
 ## New vs retained
 
@@ -47,7 +47,8 @@ Environment: Linux x64 sandbox, Node 24.22.0, Electron 45.0.0, Chromium 156.0.80
 | `npm audit --json` | **0 known advisories** reported at execution time, including development dependencies; not an audit of the whole product |
 | `npm run licenses` | Passed; includes jose 6.2.13 MIT and bundled browser-notice pointers |
 | `git diff --check` | Passed |
-| New Windows build/DPAPI/install/upgrade/uninstall | **NOT RUN** — authenticated push/CI unavailable here |
+| Windows Server 2025 CI | **Passed:** 73 units, repeated runtime 12, browser 20, Electron/DPAPI 4, 307 runtime files, NSIS build/install and installed corruption/rejection/repair 1 |
+| Manual Windows 10/11 upgrade/uninstall | **Not run**; hosted Server CI is not consumer hardware/upgrade validation |
 
 Machine-readable summary: [V02_VERIFICATION.json](V02_VERIFICATION.json).
 
@@ -65,7 +66,7 @@ Machine-readable summary: [V02_VERIFICATION.json](V02_VERIFICATION.json).
 
 ## Remaining gaps and release gates
 
-1. **New Windows evidence is missing.** Historical v0.1.1 Windows Server 2025 run [40460198692](https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692) is evidence for the old release only. New code has not been built/installed/DPAPI-tested on Windows. Re-run the configured CI at the exact pushed commit, inspect artifacts/checksum/signature status, then execute [consumer Windows upgrade/uninstall checks](WINDOWS_INSTALL.md).
+1. **New hosted Windows evidence now passed.** [Run 40507389557](https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40507389557) validates exact source `e6089a8`, including Windows DPAPI and actual NSIS install/runtime-tamper/repair. Windows Server 2025 is not manual Windows 10/11 hardware, upgrade or uninstall testing; the [consumer checklist](WINDOWS_INSTALL.md) remains a production gate. The installer is unsigned and only a prerelease is authorized/published.
 2. No valid digital signature, independent penetration test or full dependency/license audit. Zero npm advisories is not a security guarantee. Reviewed runtime hashes are not independent signed upstream attestation or protection against replacement of app + trust data/TOCTOU.
 3. HTTPS proxy configuration remains exposed but actual TLS-proxy transport/provider certificates are not covered by the local HTTP/SOCKS tests. Real-provider auth, remote DNS resolution, STUN/public-IP leak tests, WebRTC policy effects and VPN/firewall interactions remain network-specific/unverified. No insecure TLS bypass was added. Region is not automatic geolocation; probe latency includes browser startup/verification, not a pure RTT benchmark.
 4. This uses supported Chromium/Playwright preferences, **not a patched anti-detect engine**. OS/platform spoofing, CPU/device-memory changes, WebGL identity/noise, canvas/audio/font noise, media-device identity rewriting and guaranteed high-entropy client-hint consistency are unsupported. Diagnostics observe native behavior/capability availability; they do not certify leak freedom or undetectability.
@@ -95,4 +96,4 @@ GoLogin statements below describe **officially documented/advertised capabilitie
 - `package.json`, `package-lock.json`, `scripts/licenses.mjs`, `.github/workflows/ci.yml`: dev version/start script, pinned jose/notices, exact feature branch trigger and Linux runtime suite.
 - `README.md`, `CHANGELOG.md`, `SECURITY.md`, `SECURITY_REMEDIATION.md`, `WORK_CHECKPOINT.md`, `docs/WINDOWS_INSTALL.md`, this report/audit/runtime guide/verification JSON and two actual desktop screenshots: current documentation/evidence.
 
-**Ready for review and authenticated Windows CI, not a newly approved production release.**
+**Published tested development prerelease; not approved as a new production stable release.**

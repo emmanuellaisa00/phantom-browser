@@ -47,14 +47,30 @@
     "git_diff_check": "passed"
   },
   "windows": {
-    "new_run": null,
-    "status": "not run: no authenticated GitHub push available",
-    "historical_v011_run_only": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40460198692",
-    "manual_consumer_win10_11": "not verified"
+    "new_run": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40507389557",
+    "source_commit": "e6089a8aaa0814f82558f4ed11dbea5d52934042",
+    "status": "passed on Windows Server 2025 x64",
+    "unit_passed": 73,
+    "runtime_repeated_passed": 12,
+    "browser_passed": 20,
+    "desktop_including_dpapi_passed": 4,
+    "installed_runtime_tamper_repair_passed": 1,
+    "runtime_files_verified": 307,
+    "manual_consumer_win10_11": "not verified",
+    "digital_signature": "unsigned; no valid signature claimed"
   },
-  "release_published": false,
+  "release_published": true,
   "merged_to_main": false,
-  "remote_branch_pushed": false,
+  "remote_branch_pushed": true,
   "raw_logs_workspace_prefix": "/home/user/v02-",
-  "limitations_document": "docs/V02_IMPLEMENTATION.md"
+  "limitations_document": "docs/V02_IMPLEMENTATION.md",
+  "publication": {
+    "tag": "v0.2.0-dev.1",
+    "release_id": 425469022,
+    "release_url": "https://github.com/emmanuellaisa00/phantom-browser/releases/tag/v0.2.0-dev.1",
+    "prerelease": true,
+    "stable_latest": "v0.1.1",
+    "commit": "e6089a8aaa0814f82558f4ed11dbea5d52934042",
+    "installer_sha256": "7b03512149e1ee4bcdc2291f9426c8ae71ddea7fc0157aa6c04953fda34ab68e"
+  }
 }
