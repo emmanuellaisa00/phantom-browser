@@ -20,7 +20,11 @@ export async function tlsProxy(port:number,credentials?:string) {
   let trusted=false;const thumbprint=new X509Certificate(fs.readFileSync(path.join(root,'ca.crt'))).fingerprint.replaceAll(':','');
   return {...proxy,trustInEphemeralWindowsCI(){
    if(process.platform!=='win32'||process.env.CI!=='true'||!process.env.RUNNER_TEMP)throw Error('Refusing to change trust outside ephemeral Windows CI');
-   execFileSync('certutil.exe',['-user','-f','-addstore','Root',path.join(root,'ca.crt')],{timeout:15000,stdio:'pipe',windowsHide:true});trusted=true;
-  },async close(){try{await proxy.close();if(trusted)execFileSync('certutil.exe',['-user','-delstore','Root',thumbprint],{timeout:15000,stdio:'pipe',windowsHide:true});}finally{fs.rmSync(root,{recursive:true,force:true});}}};
+   trusted=true;
+   // CurrentUser Root imports can display an unavoidable Windows trust dialog.
+   // Use the disposable elevated CI machine's Root store through .NET instead;
+   // require administrator rights and remove this exact certificate afterward.
+   execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; if(-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Ephemeral CI administrator required'}; $cert=[Security.Cryptography.X509Certificates.X509Certificate2]::new($env:PHANTOM_TLS_CA_PATH); $store=[Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine'); try{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite); $store.Add($cert)}finally{$store.Close()}`],{timeout:30000,stdio:'pipe',windowsHide:true,env:{...process.env,PHANTOM_TLS_CA_PATH:path.join(root,'ca.crt')}});
+  },async close(){try{await proxy.close();if(trusted)execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`$ErrorActionPreference='Stop'; $store=[Security.Cryptography.X509Certificates.X509Store]::new('Root','LocalMachine'); try{$store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite); $found=$store.Certificates.Find([Security.Cryptography.X509Certificates.X509FindType]::FindByThumbprint,$env:PHANTOM_TLS_CA_THUMBPRINT,$false); foreach($cert in $found){$store.Remove($cert)}}finally{$store.Close()}`],{timeout:30000,stdio:'pipe',windowsHide:true,env:{...process.env,PHANTOM_TLS_CA_THUMBPRINT:thumbprint}});}finally{fs.rmSync(root,{recursive:true,force:true});}}};
  }catch(e){fs.rmSync(root,{recursive:true,force:true});throw e;}
 }
