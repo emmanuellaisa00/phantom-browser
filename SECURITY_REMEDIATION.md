@@ -1,3 +1,5 @@
+> Historical v0.1.1 hardening evidence below: v0.1.1 was subsequently explicitly authorized and published. New 0.2.0-dev.1 changes and unexecuted Windows gates are tracked separately in [docs/V02_IMPLEMENTATION.md](docs/V02_IMPLEMENTATION.md).
+
 # v0.1.1 remediation and validation report
 
 Status: **Linux and hosted-Windows CI validated candidate, not released**. Validation date: 2026-10-27. Source baseline: upstream `316dcb0` (v0.1.0 release line). Work preserves the existing Electron/React/TypeScript/Playwright architecture and all original tests. User authorized a new review-branch push and Windows CI only; no release publication or asset overwrite is authorized.

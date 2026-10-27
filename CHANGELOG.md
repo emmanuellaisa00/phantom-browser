@@ -1,6 +1,17 @@
 # Changelog
 
-## 0.1.1 — candidate, not published
+## 0.2.0-dev.1 — unreleased
+
+- Add non-destructive archive/unarchive, description and last session-activity metadata, bounded startup URLs/homepage and opt-in native tab/session restoration; legacy JSON fields load with additive defaults.
+- Four-step profile wizard, typed browser preference controls, archive filter/recently-used sort, sequential bulk requests and encryption/restore dialogs. Version labels come from package.json.
+- Add native DPR, explicit opt-in geolocation and Chromium non-proxied-UDP policy, honest observed diagnostics and prelaunch custom-UA/native-OS/version consistency guards. Unsupported hardware/canvas/audio/font/WebGL spoofing remains unsupported.
+- Add local-only real-browser HTTP Basic/SOCKS5 and fail-closed proxy tests, measured probe latency and user-entered region labels.
+- Add bounded delay/current-URL/exact-URL/title/selector-state automation steps and report run IDs/durations; preserve private result/criterion omission and masked screenshots.
+- Add authenticated compact-JWE password backups using pinned jose/WebCrypto and bounded PBES2/AES-GCM algorithms; retain gzip compatibility and authenticate before extracting any files. No password recovery or plaintext password persistence.
+- Reproduce/fix proxy-save race when a profile starts while DPAPI encryption is pending; reject writes after shutdown. Keep process-ownership, archive limits and strict IPC security intact.
+- Actual local evidence and incomplete Windows/production gates: [implementation report](docs/V02_IMPLEMENTATION.md). No release or merge authorized.
+
+## 0.1.1 — published
 
 ### Fixed
 - Automation now emits ordered records for all six attempted actions with start/end timestamps, safe failure/cancellation outcomes, job timing and screenshot references. Unique files, directory recreation and explicit report-write failure messages replace timestamp collisions and false completion reporting.
