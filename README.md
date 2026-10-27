@@ -1,3 +1,5 @@
+> **Unreleased remediation candidate: 0.2.0-dev.2.** New screenshot privacy, durable-write rollback, fingerprint observation and recovery fixes are described in [the remediation report](docs/REMEDIATION_REPORT.md). No new release/tag/main merge is authorized. Published v0.2.0-dev.1 report PNGs may contain fixed-position content outside the old DOM mask: treat old reports as sensitive.
+
 # Phantom Browser — local Windows browser workspaces
 
 Free, local-first Electron + React + SQLite + Playwright Chromium profile manager. No account, cloud service, paid API or telemetry. **Not a stealth/anonymity product or an independently audited security tool.**
@@ -19,11 +21,11 @@ The [40-image gallery](docs/screenshots/README.md) is historical v0.1.1 UI evide
 - Per-profile HTTP/HTTPS proxy configuration; protected credentials using Windows DPAPI only. Local real-browser tests verify HTTP Basic and unauthenticated SOCKS5 routing, concurrent isolation and failure without direct fallback. **HTTPS proxy transport and real provider/DNS/WebRTC leak behavior require further verification.** SOCKS5 authentication is rejected.
 - Explicit proxy probe using api.ipify.org, or controlled local endpoints in tests. Whole-operation latency, redacted errors and user-entered region labels; no automatic location matching.
 - Stable native Playwright preferences: viewport/screen, locale/timezone, color/motion, DPR, optional native-OS Chromium UA, explicit geolocation consent and documented Chromium WebRTC policy. Diagnostics expose observed values and limitations. No canvas/audio/font/hardware/WebGL spoofing, mobile emulation or undetectability claims.
-- Structured local automation: navigation, current title/URL reads, delay, selector/state waits, exact-URL/title conditions, click, fill, privacy-masked screenshot, cancellation. Reports have run IDs, start/end timestamps, per-step/total duration and safe outcomes. **Raw read results/criteria/inputs are intentionally omitted; screenshots mask the page.** No general JS/shell/network automation endpoint.
+- Structured local automation: navigation, current title/URL reads, delay, selector/state waits, exact-URL/title conditions, click, fill, fully opaque screenshot derivative, cancellation. Reports have run IDs, start/end timestamps, per-step/total duration and safe outcomes. **Raw read results/criteria/inputs are intentionally omitted; new screenshots are opaque derivatives with no retained source pixels.** No general JS/shell/network automation endpoint.
 - Compatible bounded gzip backup/restore plus recommended authenticated password-encrypted **compact JWE**, implemented by pinned `jose` over WebCrypto. Encryption uses PBES2-HS512+A256KW, 310,000 iterations and A256GCM. Restore authenticates before decompression or profile creation. No password recovery. Exported proxy credentials/assignments are excluded; browser cookies may remain Windows-account-bound.
 - Sandboxed, isolated Electron renderer with strict validated/authorized IPC. Pinned runtime archive/per-file verification and conservative ownership-aware locks remain in place.
 
-See [security boundaries](SECURITY.md), [audit](docs/V02_AUDIT.md), [comparison and verification](docs/V02_IMPLEMENTATION.md), [Windows installation](docs/WINDOWS_INSTALL.md) and [changelog](CHANGELOG.md).
+See [fingerprint capabilities](docs/FINGERPRINT_CAPABILITIES.md), [proxy limits](docs/PROXY_LIMITATIONS.md), [backup/restore](docs/BACKUP_RESTORE.md), [troubleshooting](docs/TROUBLESHOOTING.md), [security boundaries](SECURITY.md), [audit](docs/V02_AUDIT.md), [comparison and verification](docs/V02_IMPLEMENTATION.md), [Windows installation](docs/WINDOWS_INSTALL.md) and [changelog](CHANGELOG.md).
 
 ## Development
 

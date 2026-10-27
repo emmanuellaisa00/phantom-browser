@@ -1,3 +1,5 @@
+> Historical dev.1 CI/publication record. For the current **unreleased dev.2** candidate, exact source/run/limits, see [remediation report](REMEDIATION_REPORT.md) and verification JSON. No new publication is authorized.
+
 > **Completed:** branch pushed, CI 40507389557 passed, and user-authorized v0.2.0-dev.1 prerelease published. The instructions below describe the earlier unauthenticated handoff and remain reference-only. See V02_IMPLEMENTATION.md for current evidence.
 
 # Authenticated push and Windows CI handoff

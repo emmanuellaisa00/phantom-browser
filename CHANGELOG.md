@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0-dev.2 — unreleased remediation candidate
+
+- Reproduce/fix screenshot privacy exposure outside HTML root bounds; write only opaque same-size derivatives, with size/PNG regression checks and best-effort original-buffer clearing.
+- Add explicit per-step run/profile IDs and required durations; regression-test sanitized failures for all six original actions.
+- Tighten UA full-version/browser-family/OS/architecture guards; measure low/high-entropy hints, controlled canvas/audio hashes, native WebGL details, generic-font metrics, permissions/media-kind counts and local-only ICE with explicit unsupported labels.
+- Validate UA/client-hint headers and same-environment relaunch stability, Cache Storage/service-worker isolation and real manager-death/live-Chromium lock retention.
+- Reject malformed public-IP bodies and newer-major Chromium backups; preserve compatible JWE/gzip behavior.
+- Reproduce/fix persistence-after-COMMIT memory divergence; restore old in-memory state after failed durable writes, clean exclusive partial files and retain previously durable data.
+- Report incomplete shutdown/changed lock ownership; add actual installed Windows fingerprint and Electron-interruption tests and controlled HTTPS-proxy trust fixtures without production TLS bypass.
+- Keep all original tests and source/runtime trust pins; CI remains read-only/artifact-only, with both platform jobs required for overall success. No tag/release/main merge authorized.
+- Actual final results and remaining blockers: [remediation report](docs/REMEDIATION_REPORT.md).
+
+
 ## 0.2.0-dev.1 — published development prerelease
 
 Published the exact installer from successful CI run 40507389557 at source e6089a8. Windows Server 2025: 73 unit / repeated runtime 12 / browser 20 / Electron+DPAPI 4 / installed corruption-repair 1 passed. Manual Windows 10/11 checks and signing remain pending. v0.1.1 stays latest stable; no main merge.

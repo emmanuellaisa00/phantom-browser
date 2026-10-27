@@ -20,6 +20,14 @@ Locks carry Electron PID, actual Chromium PID when available, profile UUID and a
 
 Shutdown cancels starting launches, bounds graceful close, and retains locks/state when exit is unknown. Startup labels unresolved history `recovery_required` instead of claiming a live orphan exited. Unknown/malformed locks and inaccessible OS inspection require manual review. Do not delete locks while a browser might be using the profile. Before manual recovery: back up application data, close all Phantom instances and associated Chromium windows, verify the profile directory and processes in Windows tools, then have the maintainer review the lock. The app intentionally does not offer an unsafe one-click force-unlock.
 
+## New unreleased remediation issues/fixes
+
+Published v0.2.0-dev.1 automation screenshots mask only the HTML bounding box; fixed-position content can fall outside it and remain visible. A real-browser regression reproduced this. Treat existing reports as sensitive; no user reports are automatically deleted. The 0.2.0-dev.2 development fix captures only in memory, creates a bounded fully opaque same-size PNG derivative in the main process, clears the original buffer best-effort and writes no source pixels. This is **not a readable content screenshot**. It does not rely on untrusted page CSS/layout or pretend that a placeholder is a full screenshot.
+
+Database transaction persistence could fail after SQL COMMIT while leaving changed memory that a later close saved. Reproduced create/edit failures now restore the pre-transaction database image and retain foreign-key enforcement; temporary writes use exclusive unique files and cleanup. Disk failure does not falsely create a durable profile or resurrect rejected changes.
+
+Each automation step now has its own run/profile IDs and required duration. Changed lock ownership and rejected shutdown closes are reported while preserving conservative locks. New diagnostic native hashes are identifying data: keep app data private; no third-party fingerprint/ICE/DNS endpoint is contacted. HTTPS positive transport tests change certificate trust **only in disposable elevated Windows CI**, remove the exact temporary CA and add no production TLS bypass.
+
 ## Backups and reports
 
 In published v0.1.1, backups are **gzip, not encryption**. This unreleased branch adds an opt-in/recommended authenticated compact-JWE option; legacy gzip remains unencrypted. Browser cookies, local storage and session databases can grant account access; store archives privately. Windows-bound cookies may not decrypt on another account or machine. Proxy assignments/credential storage are not exported. User-entered notes, launch URLs and browser-session files may still be sensitive; the application does not claim to find or scrub every secret a user intentionally stored in a profile.
@@ -28,7 +36,7 @@ The encrypted option uses maintained pinned `jose` 6.2.13 with WebCrypto, standa
 
 Gzip manifest format v1 is retained inside either envelope. Limits: 400 MiB compressed input, 400 MiB decompressed JSON, 256 MiB total decoded files, 64 MiB per file, 50,000 files. Restore validates all names, base64, lengths and SHA256 hashes before creating a new UUID profile, rejects duplicate normalized paths and file/directory collisions, writes exclusive files and removes partial restores. Ordinary archives are not an authenticity/signature mechanism: an attacker who rewrites data and hashes can create a different valid archive.
 
-Automation reports include every attempted step, safe timestamps/outcomes, monotonic per-step/total duration, run IDs and screenshot references. Raw errors, titles, selectors, URLs and fill values are omitted. Report screenshots mask the entire page, including potentially sensitive content; they are intentionally not full-content screenshots. Files use unique job IDs and restrictive permissions where supported. Report-write failures are explicitly reported. Windows permissions ultimately depend on the account/parent-directory ACLs, not POSIX modes alone.
+Automation reports include every attempted step, safe timestamps/outcomes, monotonic per-step/total duration, run IDs and screenshot references. Raw errors, titles, selectors, URLs and fill values are omitted. New report screenshots are fully opaque derivatives generated outside page layout; they are intentionally not full-content screenshots. The earlier DOM-bound mask privacy issue is described above. Files use unique job IDs and restrictive permissions where supported. Report-write failures are explicitly reported. Windows permissions ultimately depend on the account/parent-directory ACLs, not POSIX modes alone.
 
 ## Proxies and diagnostics
 

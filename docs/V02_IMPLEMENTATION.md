@@ -1,3 +1,5 @@
+> Historical dev.1 implementation record. Current unreleased remediation and known old screenshot privacy issue: [REMEDIATION_REPORT.md](REMEDIATION_REPORT.md). Do not apply this historical verification to dev.2.
+
 # Local workspaces development — implementation and verification
 
 **2026-10-27 · 0.2.0-dev.1 · branch `feat/local-workspaces-v0.2`**

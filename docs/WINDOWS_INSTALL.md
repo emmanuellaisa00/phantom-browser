@@ -1,3 +1,5 @@
+> **New candidate:** 0.2.0-dev.2 fixes additional privacy/durability issues but is not published. See [remediation evidence](REMEDIATION_REPORT.md); do not confuse the older v0.2.0-dev.1 release with the new candidate.
+
 > Published latest installer: v0.1.1. The development prerelease v0.2.0-dev.1 is also published after successful Linux/Windows Server 2025 CI run 40507389557, including DPAPI and installed-runtime tamper/repair. v0.1.1 remains latest stable. Manual consumer Windows 10/11 upgrade/uninstall checks remain pending.
 
 # Windows installation
@@ -47,3 +49,10 @@ Windows 10/11 x64 are intended targets, not a claim that every version/driver is
 7. App downgrade is not automatic: older strict schemas may reject newly saved JSON fields. Roll back only using a separate pre-upgrade app-data snapshot, with all browsers stopped. Do not overwrite current profiles to test a rollback.
 
 Hosted CI covers the configured browser/desktop/DPAPI/installer-tamper tests, not all of these manual consumer-OS, UAC/SmartScreen, update and uninstall cases. An authorized workflow dispatch is not a successful result; record the actual run URL and counts before release.
+
+
+## Installed fingerprint and interruption coverage
+
+The expanded Windows workflow runs `npm run test:installed` against the actual NSIS-installed EXE. Besides the prior tamper/repair smoke test, it now diagnoses a controlled local page in the bundled profile browser, compares actual UA/headers/hints/preferences/canvas/audio across relaunch, and writes only controlled CI observations to an artifact. A separate test terminates the known spawned Electron process, restarts the installed app, verifies saved metadata and conservative lock recovery, and terminates an old Chromium process only after exact executable/launch-ID/profile-directory ownership checks. These tests are not substitutes for manual consumer upgrade/uninstall/driver/signature validation.
+
+Final candidate run [40565021705](https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40565021705) passed source browser/DPAPI tests and all three actual installed-app tests. Its independently checked installer SHA256 is `1cf8ac18c68abdaf8dd6cfd906159a384acf8777d560d86883d4c0a442853670`; see [verification JSON](REMEDIATION_VERIFICATION.json). This remains an unpublished candidate and does not complete the manual checklist above.

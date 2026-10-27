@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-27",
+  "version": "0.2.0-dev.2",
+  "published": false,
+  "tag_created": false,
+  "main_merged": false,
+  "source_commit": "02d0a4bc6b326d663a0ae5220fc49eaa85d793b2",
+  "ci": {
+    "run_id": 40565021705,
+    "url": "https://github.com/emmanuellaisa00/phantom-browser/actions/runs/40565021705",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "name": "windows-installer",
+        "job_id": 122403890476,
+        "conclusion": "success",
+        "unit_runs": [
+          {
+            "passed": 90,
+            "skipped": 4
+          },
+          {
+            "passed": 12,
+            "skipped": 0
+          }
+        ],
+        "playwright_runs": [
+          {
+            "suite": "browser",
+            "passed": 27,
+            "duration": "2.4m",
+            "skipped": 0
+          },
+          {
+            "suite": "desktop",
+            "passed": 4,
+            "duration": "11.3s",
+            "skipped": 0
+          },
+          {
+            "suite": "installed",
+            "passed": 3,
+            "duration": "23.6s",
+            "skipped": 0
+          }
+        ],
+        "runtime_verification": [
+          [
+            "307",
+            "156.0.8078.4",
+            "win32/x64"
+          ],
+          [
+            "307",
+            "156.0.8078.4",
+            "win32/x64"
+          ]
+        ],
+        "os": "Windows Server 2025 x64 hosted"
+      },
+      {
+        "name": "linux-checks",
+        "job_id": 122403891128,
+        "conclusion": "success",
+        "unit_runs": [
+          {
+            "passed": 94,
+            "skipped": 0
+          },
+          {
+            "passed": 12,
+            "skipped": 0
+          }
+        ],
+        "playwright_runs": [
+          {
+            "suite": "browser",
+            "passed": 26,
+            "duration": "41.6s",
+            "skipped": 1
+          },
+          {
+            "suite": "desktop",
+            "passed": 3,
+            "duration": "13.2s",
+            "skipped": 1
+          }
+        ],
+        "runtime_verification": [
+          [
+            "303",
+            "156.0.8078.4",
+            "linux/x64"
+          ]
+        ],
+        "os": "Ubuntu 24.04 x64 hosted"
+      }
+    ]
+  },
+  "local": {
+    "typecheck": "passed",
+    "lint": "passed",
+    "unit": {
+      "passed": 94,
+      "files": 12
+    },
+    "browser": {
+      "passed": 26,
+      "windows_only_skipped": 1
+    },
+    "desktop": {
+      "passed": 3,
+      "windows_only_skipped": 1
+    },
+    "build": "passed",
+    "runtime_unit_passed": 12,
+    "strict_runtime_files_verified": 303,
+    "audit_all_vulnerabilities": 0,
+    "audit_production_vulnerabilities": 0
+  },
+  "artifacts": [
+    {
+      "id": 12763370769,
+      "name": "Phantom-controlled-installed-diagnostics",
+      "size_in_bytes": 2614,
+      "digest": "sha256:00ecbf962db74cfe32d18eaafda4053cba8132c3ae12ecee98eb767318b164b2",
+      "expires_at": "2027-01-25T18:59:30Z",
+      "downloaded_zip_digest_verified": true
+    },
+    {
+      "id": 12763146668,
+      "name": "Phantom-Browser-Windows-Setup",
+      "size_in_bytes": 297383002,
+      "digest": "sha256:bf5f39f8ccc60b5dde8d26e0221d896d201d26e0f4415013f9d18f2e00732f0b",
+      "expires_at": "2027-01-25T18:59:30Z",
+      "downloaded_zip_digest_verified": true,
+      "installer": {
+        "name": "Phantom-Browser-Setup-0.2.0-dev.2-x64.exe",
+        "size_bytes": 297344549,
+        "sha256": "1cf8ac18c68abdaf8dd6cfd906159a384acf8777d560d86883d4c0a442853670",
+        "workflow_checksum_match": true,
+        "zip_member_hashed_independently": true
+      }
+    }
+  ],
+  "consumer_windows_10_11_manual_validation": false,
+  "valid_publisher_signature_verified": false,
+  "full_antidetect_or_GoLogin_parity": false,
+  "public_DNS_STUN_leak_certification": false
+}
