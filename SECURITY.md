@@ -1,0 +1,39 @@
+# Security policy and boundaries
+
+Phantom Browser is a local-first profile manager, not a stealth or anonymity product. This repository has not received an independent penetration test or a complete third-party security audit. Do not disclose credentials, cookies or private profiles in public issues. Use GitHub private vulnerability reporting if enabled; otherwise ask the maintainer for a private contact without publishing exploit material or session data.
+
+## Credentials and Electron
+
+Production proxy secrets are encrypted only by Windows Electron `safeStorage` with its async encryption-availability check. On unsupported systems or unavailable encryption/decryption, credential operations fail closed. There is no production plaintext/AES fallback. The AES adapter in tests is test-only. SQLite queries are parameterized; profile metadata is not encrypted. Protect the Windows account and application-data directory.
+
+The renderer uses context isolation, a sandbox, no Node integration and web security. A frozen preload bridge exposes only strict Zod-validated requests. Main-process IPC checks sender ID, exact trusted URL and main frame. External renderer navigation, new windows, webviews and permission requests are denied. No general shell, filesystem or arbitrary JavaScript IPC exists. CSP was not relaxed for this release.
+
+## Runtime trust
+
+Ordinary provisioning requires both checked-in archive SHA256 pins (`scripts/runtime-archives.json`) and the version/platform/architecture/file manifest. There is no auto-bootstrap or trust-on-first-download mode. Archives are bounded, hash-verified before ZIP extraction, inventory-validated, extracted in a new staging directory and file-verified before promotion. Missing/extra/changed files, extra directories, duplicate/case-colliding paths, symlinks, unexpected manifest fields and identity mismatches fail closed.
+
+The same verifier runs before profile and proxy-test browser launches; packaged manifests are embedded in the main-process bundle. This costs disk I/O on each launch and intentionally avoids a stale verification cache. It is not a signature check and cannot defend against an attacker who can modify both the application and its trust data, an already compromised upstream, or all filesystem changes in the interval between checking and execution. Windows code signing and installer ACLs are separate defenses, not supplied by a checksum.
+
+## Processes and locks
+
+Locks carry Electron PID, actual Chromium PID when available, profile UUID and a unique launch ID. Launches pass an ownership marker to Chromium; OS inspection checks the marker, complete user-data-dir argument and executable path, and records process birth identity when available. PIDs alone never authorize termination. PID reuse/live-but-unrelated PIDs may conservatively block recovery rather than risk another process. There is no arbitrary OS PID-kill fallback.
+
+Shutdown cancels starting launches, bounds graceful close, and retains locks/state when exit is unknown. Startup labels unresolved history `recovery_required` instead of claiming a live orphan exited. Unknown/malformed locks and inaccessible OS inspection require manual review. Do not delete locks while a browser might be using the profile. Before manual recovery: back up application data, close all Phantom instances and associated Chromium windows, verify the profile directory and processes in Windows tools, then have the maintainer review the lock. The app intentionally does not offer an unsafe one-click force-unlock.
+
+## Backups and reports
+
+Backups are **gzip, not encryption**. Browser cookies, local storage and session databases can grant account access; store archives privately. Windows-bound cookies may not decrypt on another account or machine. Proxy assignments/credential storage are not exported. User-entered notes, launch URLs and browser-session files may still be sensitive; the application does not claim to find or scrub every secret a user intentionally stored in a profile.
+
+Format v1 is retained. Limits: 400 MiB compressed input, 400 MiB decompressed JSON, 256 MiB total decoded files, 64 MiB per file, 50,000 files. Restore validates all names, base64, lengths and SHA256 hashes before creating a new UUID profile, rejects duplicate normalized paths and file/directory collisions, writes exclusive files and removes partial restores. Ordinary archives are not an authenticity/signature mechanism: an attacker who rewrites data and hashes can create a different valid archive.
+
+Automation reports include every attempted step, safe timestamps/outcomes and screenshot references. Raw errors, titles, selectors, URLs and fill values are omitted. Report screenshots mask the entire page, including potentially sensitive content; they are intentionally not full-content screenshots. Files use unique job IDs and restrictive permissions where supported. Report-write failures are explicitly reported. Windows permissions ultimately depend on the account/parent-directory ACLs, not POSIX modes alone.
+
+## Proxies and diagnostics
+
+HTTP/HTTPS proxy servers and unauthenticated SOCKS5 are supported subject to Chromium/platform behavior. SOCKS5 authentication is rejected, including retained credentials during protocol changes. Proxy tests have launch, credential, navigation and close bounds and make an intentional request to api.ipify.org; they are not telemetry. DNS resolution, WebRTC traffic routing and complete IP-leak prevention are not guaranteed. No WebRTC/DNS leak firewall is implemented. Test in your own network environment.
+
+Diagnostics report observed browser values and configured mismatches. User agent, viewport, locale, timezone and motion settings do not guarantee a consistent hardware fingerprint, `webdriver: false`, anonymity or undetectability.
+
+## Platform/release status
+
+Windows 10/11 x64 is the intended installation target; current candidate verification status and actual CI environment are recorded in SECURITY_REMEDIATION.md. A hosted Windows Server runner is not proof of every Windows 10/11 configuration. Installers are unsigned unless an actual signature has been independently verified. Uninstall retains user profiles; back up data before upgrading. No release is published by the build workflow automatically.

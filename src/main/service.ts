@@ -5,6 +5,12 @@ import {gzipSync, gunzipSync} from 'node:zlib';
 import {chromium, type BrowserContext, type Page} from 'playwright';
 import {z} from 'zod';
 import {Database} from './database';
+import {runAutomation, type Job} from './automation';
+import {requestSchema} from '../shared/schema';
+import {ownedProcesses, scanProcesses} from './process-ownership';
+import {verifyRuntime} from '../shared/runtime-integrity';
+import linuxManifest from '../../scripts/runtime-manifests/linux-x64-chromium-156.0.8078.4.json' with {type: 'json'};
+import windowsManifest from '../../scripts/runtime-manifests/win32-x64-chromium-156.0.8078.4.json' with {type: 'json'};
 import {configSchema, profileInput, profileSchema, proxyInput, proxySchema, type Profile, type Snapshot, type Request, type BrowserConfig} from '../shared/schema';
 
 export interface Secrets {
@@ -24,6 +30,8 @@ export interface LockMeta {
   state: LockState;
   createdAt: string;
   updatedAt: string;
+  browserMayExist?: boolean;
+  chromiumBirth?: string;
 }
 
 interface Runtime {
@@ -32,19 +40,27 @@ interface Runtime {
   closing: boolean;
   pid?: number;
   electronPid: number;
+  ready?: Promise<BrowserContext>;
+  stopping?: Promise<void>;
+  browserMayExist?: boolean;
+  closed?: boolean;
+  settling?: Promise<void>;
+  recoveryRequired?: boolean;
 }
+
+export const BACKUP_LIMITS = {archive: 400 * 1024 * 1024, decompressed: 400 * 1024 * 1024, total: 256 * 1024 * 1024, file: 64 * 1024 * 1024, count: 50000};
 
 const manifestSchema = z.strictObject({
   format: z.literal('phantom-backup'),
   version: z.literal(1),
-  engine: z.string(),
+  engine: z.string().max(200),
   profile: profileInput,
   files: z.array(z.strictObject({
     name: z.string().max(1024),
-    size: z.number().int().min(0),
+    size: z.number().int().min(0).max(BACKUP_LIMITS.file),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    data: z.string(),
-  })).max(50000),
+    data: z.string().max(Math.ceil(BACKUP_LIMITS.file / 3) * 4),
+  })).max(BACKUP_LIMITS.count),
 });
 
 const hash = (b: Buffer) => createHash('sha256').update(b).digest('hex');
@@ -52,17 +68,17 @@ const now = () => new Date().toISOString();
 
 export class Service {
   readonly running = new Map<string, Runtime>();
-  readonly jobs = new Map<string, { running: boolean; message: string; cancelled: boolean }>();
+  readonly jobs = new Map<string, Job>();
   private busy = new Set<string>();
   private logs: Snapshot['logs'] = [];
+  private shuttingDown = false;
+  private closedForUpdates = false;
+  private shutdownWork?: Promise<void>;
 
   constructor(readonly db: Database, readonly root: string, private secrets: Secrets, private headless = false) {
     fs.mkdirSync(path.join(root, 'profiles'), {recursive: true});
     fs.mkdirSync(path.join(root, 'reports'), {recursive: true});
-    db.transaction(() => {
-      db.run("UPDATE launches SET ended_at=?,outcome='interrupted' WHERE ended_at IS NULL", [now()]);
-    });
-    void this.recoverOrphans();
+    this.recoverOrphans();
     for (const p of this.profiles()) {
       if (!fs.existsSync(this.directory(p.id))) {
         this.log(`Missing storage directory for profile ${p.id}`);
@@ -73,11 +89,11 @@ export class Service {
   log(message: string) {
     this.logs.unshift({time: now(), message});
     this.logs = this.logs.slice(0, 300);
-    fs.appendFileSync(path.join(this.root, 'application.log'), JSON.stringify({time: now(), message}) + '\n', {mode: 0o600});
+    try {fs.appendFileSync(path.join(this.root, 'application.log'), JSON.stringify({time: now(), message}) + '\n', {mode: 0o600});
     const log = path.join(this.root, 'application.log');
     if (fs.statSync(log).size > 2_000_000) {
       fs.renameSync(log, log + '.previous');
-    }
+    }} catch { /* logging must not break lifecycle cleanup */ }
   }
 
   directory(id: string) {
@@ -87,7 +103,7 @@ export class Service {
   profiles(): Profile[] {
     return this.db.rows('SELECT data FROM profiles').map(r => {
       const p = profileSchema.parse(JSON.parse(String(r.data)));
-      return {...p, status: this.running.has(p.id) ? this.running.get(p.id)?.context ? 'running' : 'starting' : p.lastError ? 'error' : 'stopped'};
+      return {...p, status: this.running.get(p.id)?.recoveryRequired ? 'error' : this.running.has(p.id) ? this.running.get(p.id)?.context ? 'running' : 'starting' : p.lastError ? 'error' : 'stopped'};
     });
   }
 
@@ -108,10 +124,12 @@ export class Service {
   }
 
   private patch(id: string, fields: Partial<Profile>) {
+    if (this.closedForUpdates) return;
     this.save({...this.profile(id), ...fields, updatedAt: now()});
   }
 
   create(input: unknown) {
+    if (this.shuttingDown) throw Error('Application is shutting down');
     const v = profileInput.parse(input);
     if (v.proxyId && !this.db.rows('SELECT id FROM proxies WHERE id=?', [v.proxyId]).length) {
       throw Error('Proxy not found');
@@ -141,9 +159,9 @@ export class Service {
     this.patch(id, v);
   }
 
-  private assertIdle(id: string) {
+  private assertIdle(id: string, allowLock = false) {
     this.profile(id);
-    if (this.running.has(id) || this.busy.has(id)) {
+    if (this.shuttingDown || this.running.has(id) || this.busy.has(id) || (!allowLock && fs.existsSync(path.join(this.directory(id), '.phantom-lock')))) {
       throw Error('Stop the profile and wait for pending operations first');
     }
   }
@@ -157,7 +175,7 @@ export class Service {
       copy = this.create({...profileInput.parse(pickInput(p)), name: p.name + ' (copy)'});
       fs.cpSync(this.directory(id), this.directory(copy.id), {
         recursive: true,
-        filter: source => !['.phantom-lock', 'SingletonLock', 'SingletonSocket', 'SingletonCookie'].includes(path.basename(source)) && !fs.lstatSync(source).isSymbolicLink(),
+        filter: source => !['.phantom-lock', '.phantom-recovery', 'SingletonLock', 'SingletonSocket', 'SingletonCookie'].includes(path.basename(source)) && !fs.lstatSync(source).isSymbolicLink(),
       });
       return copy;
     } catch (e) {
@@ -187,132 +205,100 @@ export class Service {
     this.log(`Deleted profile ${id}`);
   }
 
-  private acquire(id: string, chromiumPid?: number, launchId = randomUUID()) {
-    const lockDir = path.join(this.directory(id), '.phantom-lock');
-    const metaPath = path.join(lockDir, 'metadata.json');
-    const nowTs = now();
-    if (fs.existsSync(lockDir)) {
-      let existing: LockMeta | null = null;
-      try {
-        existing = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as LockMeta;
-      } catch {
-        /* malformed or incomplete lock */
-      }
-      if (existing) {
-        if (!Number.isSafeInteger(existing.electronPid) || existing.electronPid <= 0 || existing.profileId !== id) {
-          throw Error('Profile is locked: invalid metadata requires manual recovery');
-        }
-        if (this.isProcessAlive(existing.electronPid) || (existing.chromiumPid && this.isProcessAlive(existing.chromiumPid))) {
-          throw Error('Profile is locked by a live process');
-        }
-      } else {
-        const legacy = path.join(lockDir, 'pid');
-        const pid = fs.existsSync(legacy) ? Number(fs.readFileSync(legacy, 'utf8').trim()) : 0;
-        if (!Number.isSafeInteger(pid) || pid <= 0 || this.isProcessAlive(pid)) {
-          throw Error('Profile is locked; close other instances or recover the lock manually');
-        }
-      }
-      fs.rmSync(lockDir, {recursive: true, force: true});
-    }
-    fs.mkdirSync(lockDir, {recursive: false});
-    const meta: LockMeta = {
-      format: 'phantom-lock',
-      version: 1,
-      electronPid: process.pid,
-      chromiumPid,
-      profileId: id,
-      launchId,
-      state: 'acquiring',
-      createdAt: nowTs,
-      updatedAt: nowTs,
-    };
-    try {
-      fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), {mode: 0o600});
-    } catch (_e) {
-      fs.rmSync(lockDir, {recursive: true, force: true});
-      throw _e;
-    }
-  }
-
-  private release(id: string): LockMeta | null {
-    const lockDir = path.join(this.directory(id), '.phantom-lock');
-    const metaPath = path.join(lockDir, 'metadata.json');
-    let meta: LockMeta | null;
-    try {
-      meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as LockMeta;
-    } catch {
-      return null;
-    }
-    try {
-      fs.rmSync(lockDir, {recursive: true, force: true});
-    } catch {
-      /* already removed */
-    }
-    return meta;
+  private readLock(id: string): LockMeta {
+    const file = path.join(this.directory(id), '.phantom-lock', 'metadata.json');
+    if (fs.lstatSync(path.dirname(file)).isSymbolicLink() || fs.lstatSync(file).isSymbolicLink()) throw Error('Profile is locked: unsafe metadata');
+    if (fs.statSync(file).size > 16384) throw Error('Profile lock metadata exceeds safety limit');
+    const schema = z.strictObject({format: z.literal('phantom-lock'), version: z.literal(1), electronPid: z.number().int().positive(), chromiumPid: z.number().int().positive().optional(), profileId: z.literal(id), launchId: z.uuid(), state: z.enum(['acquiring', 'starting', 'running', 'stopping', 'released']), createdAt: z.iso.datetime(), updatedAt: z.iso.datetime(), browserMayExist: z.boolean().optional(), chromiumBirth: z.string().optional()});
+    return schema.parse(JSON.parse(fs.readFileSync(file, 'utf8')));
   }
 
   private isProcessAlive(pid: number): boolean {
-    if (!pid || pid <= 0) return false;
+    try {process.kill(pid, 0); return true;} catch (e) {return (e as NodeJS.ErrnoException).code !== 'ESRCH';}
+  }
+
+  private recoverable(id: string): boolean {
+    const dir = this.directory(id);
+    const lock = path.join(dir, '.phantom-lock');
+    if (fs.lstatSync(lock).isSymbolicLink()) return false;
     try {
-      process.kill(pid, 0);
-      return true;
-    } catch (e) {
-      const err = e as NodeJS.ErrnoException;
-      if (err.code === 'ESRCH') return false;
-      if (err.code === 'EPERM') return true;
-      return false;
+      const meta = this.readLock(id);
+      if (this.isProcessAlive(meta.electronPid)) return false;
+      // Neither a dead Electron PID nor a missing Chromium PID proves browser exit.
+      const processes = ownedProcesses(meta.launchId, dir, chromium.executablePath());
+      if (!processes || processes.length) return false;
+      if (meta.chromiumPid && this.isProcessAlive(meta.chromiumPid)) return false;
+      return meta.browserMayExist !== undefined || meta.state === 'acquiring' || meta.state === 'released';
+    } catch {
+      // Legacy PID locks can be recovered only with a successful OS scan and no
+      // browser using this user-data-dir. Incomplete metadata is not a legacy lock.
+      const legacy = path.join(lock, 'pid');
+      if (fs.existsSync(path.join(lock, 'metadata.json')) || !fs.existsSync(legacy) || fs.lstatSync(legacy).isSymbolicLink()) return false;
+      const pid = Number(fs.readFileSync(legacy, 'utf8').trim());
+      const processes = scanProcesses();
+      return Number.isSafeInteger(pid) && pid > 0 && !this.isProcessAlive(pid) && processes !== null && !processes.some(p => p.command.includes(dir)) && !['SingletonLock', 'SingletonCookie', 'SingletonSocket'].some(n => fs.existsSync(path.join(dir, n)));
     }
   }
 
-  private updateLock(id: string, state: LockState, chromiumPid?: number) {
-    const lockDir = path.join(this.directory(id), '.phantom-lock');
-    const metaPath = path.join(lockDir, 'metadata.json');
-    let meta: LockMeta | null;
+  private acquire(id: string, launchId: string) {
+    const dir = this.directory(id);
+    if (fs.lstatSync(dir).isSymbolicLink() || !fs.lstatSync(dir).isDirectory()) throw Error('Profile storage is inaccessible or unsafe');
+    const gate = path.join(dir, '.phantom-recovery');
+    try {fs.mkdirSync(gate);} catch {throw Error('Profile is locked by another operation');}
     try {
-      meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as LockMeta;
-    } catch {
-      return;
-    }
-    meta.state = state;
-    if (chromiumPid) meta.chromiumPid = chromiumPid;
-    meta.updatedAt = now();
-    try {
-      const tmp = metaPath + '.partial';
-      fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), {mode: 0o600});
-      fs.renameSync(tmp, metaPath);
-    } catch {
-      /* best effort */
-    }
+      const lockDir = path.join(dir, '.phantom-lock');
+      if (fs.existsSync(lockDir)) {
+        if (!this.recoverable(id)) throw Error('Profile is locked; browser ownership or exit could not be verified');
+        fs.rmSync(lockDir, {recursive: true});
+      }
+      fs.mkdirSync(lockDir);
+      const meta: LockMeta = {format: 'phantom-lock', version: 1, electronPid: process.pid, profileId: id, launchId, state: 'acquiring', createdAt: now(), updatedAt: now(), browserMayExist: false};
+      try {fs.writeFileSync(path.join(lockDir, 'metadata.json'), JSON.stringify(meta), {flag: 'wx', mode: 0o600});}
+      catch {fs.rmSync(lockDir, {recursive: true, force: true}); throw Error('Unable to persist profile lock');}
+    } finally {fs.rmSync(gate, {recursive: true, force: true});}
   }
 
-  private async recoverOrphans() {
+  private updateLock(id: string, r: Runtime, state: LockState) {
+    const meta = this.readLock(id);
+    if (meta.launchId !== r.launchId || meta.electronPid !== process.pid) throw Error('Profile lock ownership changed');
+    const owned = ownedProcesses(r.launchId, this.directory(id), chromium.executablePath());
+    meta.chromiumPid = r.pid;
+    meta.chromiumBirth = owned?.find(p => p.pid === r.pid)?.birth;
+    meta.browserMayExist = r.browserMayExist ?? false;
+    meta.state = state; meta.updatedAt = now();
+    const file = path.join(this.directory(id), '.phantom-lock', 'metadata.json');
+    const tmp = file + '.' + randomUUID() + '.partial';
+    try {fs.writeFileSync(tmp, JSON.stringify(meta), {flag: 'wx', mode: 0o600}); fs.renameSync(tmp, file);}
+    finally {fs.rmSync(tmp, {force: true});}
+  }
+
+  private release(id: string, r: Runtime) {
+    try {
+      const meta = this.readLock(id);
+      if (meta.launchId !== r.launchId || meta.electronPid !== process.pid) return;
+      fs.rmSync(path.join(this.directory(id), '.phantom-lock'), {recursive: true});
+    } catch {this.log(`Profile ${id} lock retained; manual recovery may be required`);}
+  }
+
+  private recoverOrphans() {
     for (const p of this.profiles()) {
-      const lockDir = path.join(this.directory(p.id), '.phantom-lock');
-      const metaPath = path.join(lockDir, 'metadata.json');
-      if (!fs.existsSync(lockDir) || !fs.existsSync(metaPath)) continue;
-      let meta: LockMeta | null;
-      try {
-        meta = JSON.parse(fs.readFileSync(metaPath, 'utf8')) as LockMeta;
-      } catch {
-        this.log(`Malformed lock metadata for profile ${p.id}`);
+      const lock = path.join(this.directory(p.id), '.phantom-lock');
+      if (!fs.existsSync(lock)) {
+        this.db.transaction(() => this.db.run("UPDATE launches SET ended_at=?,outcome='interrupted' WHERE profile_id=? AND ended_at IS NULL", [now(), p.id]));
         continue;
       }
-      if (meta.electronPid && this.isProcessAlive(meta.electronPid)) {
-        this.log(`Profile ${p.id} has active Electron process ${meta.electronPid}`);
-        continue;
-      }
-      if (meta.chromiumPid && this.isProcessAlive(meta.chromiumPid)) {
-        this.log(`Profile ${p.id} has orphaned Chromium process ${meta.chromiumPid}; marking for recovery`);
-        this.patch(p.id, {lastError: 'Browser process may still be using this profile. Recovery required.'});
-        continue;
-      }
-      this.log(`Stale lock for profile ${p.id}; cleaning up`);
-      try {
-        fs.rmSync(lockDir, {recursive: true, force: true});
-      } catch {
-        /* best effort */
-      }
+      this.db.transaction(() => this.db.run("UPDATE launches SET outcome='recovery_required' WHERE profile_id=? AND ended_at IS NULL", [p.id]));
+      // Do not race another acquiring service. Startup only diagnoses; acquisition
+      // performs stale cleanup under the per-profile recovery gate.
+      this.patch(p.id, {lastError: 'Existing browser lock requires ownership verification before launch.'});
     }
+  }
+
+  private verifyBrowserRuntime() {
+    try {
+      const executable = chromium.executablePath();
+      verifyRuntime(path.dirname(path.dirname(executable)), process.platform === 'win32' ? windowsManifest : linuxManifest);
+    } catch {throw Error('Chromium runtime integrity verification failed. Repair the application runtime before launching.');}
   }
 
   async proxyOptions(id: string | null) {
@@ -320,67 +306,67 @@ export class Service {
     const row = this.db.rows('SELECT data,secret FROM proxies WHERE id=?', [id])[0];
     if (!row) throw Error('Assigned proxy is missing');
     const p = proxySchema.parse(JSON.parse(String(row.data)));
-    const credentials = row.secret ? JSON.parse(await this.secrets.open(Buffer.from(row.secret as Uint8Array))) as {username?: string; password?: string} : {};
+    let credentials: {username?: string; password?: string} = {};
+    try {if (row.secret) credentials = z.object({username: z.string().optional(), password: z.string().optional()}).parse(JSON.parse(await this.secrets.open(Buffer.from(row.secret as Uint8Array))));}
+    catch {throw Error('Secure credential decryption unavailable; no plaintext fallback');}
     return {
       server: `${p.protocol}://${p.host.includes(':') ? '[' + p.host + ']' : p.host}:${p.port}`,
       ...credentials,
     };
   }
 
-  async launch(id: string) {
-    this.assertIdle(id);
+  async launch(id: string): Promise<BrowserContext> {
+    this.assertIdle(id, true);
     const p = this.profile(id);
-    if (this.running.size >= this.maxConcurrent()) {
-      throw Error('Concurrent profile limit reached; change Settings if resources permit');
-    }
-    if (!fs.existsSync(this.directory(id))) {
-      throw Error('Profile storage is missing; restore a backup');
-    }
+    if (this.running.size >= this.maxConcurrent()) throw Error('Concurrent profile limit reached; change Settings if resources permit');
     configSchema.parse(p.config);
-    const launchId = randomUUID();
-    this.acquire(id, undefined, launchId);
-    this.updateLock(id, 'starting');
-    const runtime: Runtime = {launchId, closing: false, electronPid: process.pid};
-    this.running.set(id, runtime);
-    this.db.transaction(() => this.db.run('INSERT INTO launches VALUES(?,?,?,NULL,NULL)', [runtime.launchId, id, now()]));
+    const r: Runtime = {launchId: randomUUID(), closing: false, electronPid: process.pid, browserMayExist: false};
+    this.acquire(id, r.launchId);
+    this.running.set(id, r);
+    r.ready = this.startBrowser(id, p, r);
+    return r.ready;
+  }
+
+  private async startBrowser(id: string, p: Profile, r: Runtime): Promise<BrowserContext> {
     try {
+      this.db.transaction(() => {this.db.run("UPDATE launches SET ended_at=?,outcome='recovered' WHERE profile_id=? AND ended_at IS NULL", [now(), id]); this.db.run('INSERT INTO launches VALUES(?,?,?,NULL,NULL)', [r.launchId, id, now()]);});
+      this.verifyBrowserRuntime();
+      const proxy = await this.proxyOptions(p.proxyId);
+      if (r.closing || this.shuttingDown) throw Error('Launch cancelled');
+      r.browserMayExist = true;
+      this.updateLock(id, r, 'starting');
       const context = await chromium.launchPersistentContext(this.directory(id), {
-        headless: this.headless,
-        chromiumSandbox: !this.headless,
+        headless: this.headless, chromiumSandbox: !this.headless,
         ignoreDefaultArgs: ['--password-store=basic', '--use-mock-keychain'],
-        proxy: await this.proxyOptions(p.proxyId),
-        ...this.options(p.config),
-        acceptDownloads: false,
-        timeout: 30000,
-        executablePath: chromium.executablePath(),
+        proxy, ...this.options(p.config), acceptDownloads: false, timeout: 30000,
+        executablePath: chromium.executablePath(), args: [`--phantom-launch-id=${r.launchId}`],
       });
-      runtime.context = context;
-      context.on('close', () => this.finished(id, runtime, 'closed'));
+      r.context = context;
+      context.on('close', () => {r.closed = true; r.settling = this.settleExit(id, r, r.closing ? 'stopped' : 'closed'); void r.settling.catch(() => {});});
       const browser = context.browser();
-      if (browser) {
-        try {
-          const session = await browser.newBrowserCDPSession();
-          const info = await session.send('SystemInfo.getProcessInfo');
-          runtime.pid = info.processInfo.find(p => p.type === 'browser')?.id;
-          await session.detach();
-        } catch {
-          /* PID unavailable on some distributions */
-        }
-        this.updateLock(id, 'running', runtime.pid);
+      if (browser?.close) {
+        const close = browser.close.bind(browser);
+        browser.close = async options => {await close(options); if (r.settling) await r.settling;};
       }
-      this.patch(id, {engineVersion: browser?.version() ?? 'Unknown', lastLaunch: now(), lastError: null});
-      this.log(`Launched profile ${id}${runtime.pid ? ' PID ' + runtime.pid : ''}`);
+      try {
+        const session = await context.browser()!.newBrowserCDPSession();
+        try {const info = await session.send('SystemInfo.getProcessInfo'); r.pid = info.processInfo.find(p => p.type === 'browser')?.id;}
+        finally {await session.detach();}
+      } catch { /* OS ownership scan below is independent of CDP */ }
+      const owned = ownedProcesses(r.launchId, this.directory(id), chromium.executablePath());
+      r.pid = owned?.find(p => p.pid === r.pid)?.pid ?? owned?.[0]?.pid;
+      this.updateLock(id, r, 'running');
+      if (r.closing || this.shuttingDown) {await this.closeRuntime(id, r); throw Error('Launch cancelled');}
+      this.patch(id, {engineVersion: context.browser()?.version() ?? 'Unknown', lastLaunch: now(), lastError: null});
       const page = context.pages()[0] ?? await context.newPage();
-      if (p.launchUrl) {
-        await page.goto(p.launchUrl, {waitUntil: 'domcontentloaded', timeout: 30000});
-      }
+      if (p.launchUrl) await page.goto(p.launchUrl, {waitUntil: 'domcontentloaded', timeout: 30000});
+      if (r.closing || this.shuttingDown || r.closed) throw Error('Launch cancelled');
+      this.log(`Launched profile ${id}`);
       return context;
     } catch {
-      if (runtime.context) {
-        await runtime.context.close().catch(() => {});
-      }
-      this.finished(id, runtime, 'failed');
-      this.patch(id, {lastError: 'Launch or navigation failed. Check browser provisioning, configuration, proxy and destination availability.'});
+      if (r.context && !r.closed) await this.closeRuntime(id, r).catch(() => {});
+      this.finished(id, r, r.closing ? 'cancelled' : 'failed');
+      this.patch(id, {lastError: 'Browser launch failed or was cancelled. Check runtime integrity, storage, proxy and destination availability.'});
       this.log(`Launch failed for profile ${id}`);
       throw Error('Browser launch failed; see profile error. No credentials were logged.');
     }
@@ -401,28 +387,61 @@ export class Service {
   }
 
   private finished(id: string, r: Runtime, outcome: string) {
-    if (this.running.get(id) !== r) return;
+    if (this.closedForUpdates || this.running.get(id) !== r) return;
+    const owned = r.browserMayExist ? ownedProcesses(r.launchId, this.directory(id), chromium.executablePath()) : [];
+    const provenExit = owned !== null && owned.length === 0;
+    if (!provenExit || (r.pid && this.isProcessAlive(r.pid))) return;
     this.running.delete(id);
-    this.updateLock(id, 'released');
-    this.release(id);
-    this.db.transaction(() => this.db.run('UPDATE launches SET ended_at=?,outcome=? WHERE id=?', [now(), outcome, r.launchId]));
-    const job = this.jobs.get(id);
-    if (job) job.cancelled = true;
+    this.release(id, r);
+    this.db.transaction(() => this.db.run('UPDATE launches SET ended_at=?,outcome=? WHERE id=? AND ended_at IS NULL', [now(), outcome, r.launchId]));
+    const job = this.jobs.get(id); if (job?.running) job.cancelled = true;
     this.log(`Profile ${id} ${outcome}`);
   }
 
-  async stop(id: string) {
-    const r = this.running.get(id);
-    if (!r) return;
-    if (!r.context) throw Error('Profile is still starting; wait for launch to finish');
+  private async bounded<T>(work: Promise<T>, ms: number): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {return await Promise.race([work, new Promise<never>((_, reject) => {timer = setTimeout(() => reject(Error('Browser operation timed out; lock retained')), ms);})]);}
+    finally {if (timer) clearTimeout(timer);}
+  }
+
+  private async closeRuntime(id: string, r: Runtime) {
     r.closing = true;
-    this.updateLock(id, 'stopping');
-    await r.context.close();
-    this.finished(id, r, 'stopped');
+    try {this.updateLock(id, r, 'stopping');} catch { /* retain changed/missing lock */ }
+    if (r.context && !r.closed) await this.bounded(r.context.close(), 5000);
+    await this.settleExit(id, r, 'stopped');
+  }
+
+  private async settleExit(id: string, r: Runtime, outcome: string) {
+    // Transport close and OS process exit can be slightly separated.
+    const deadline = Date.now() + 1000;
+    for (let i = 0; i < 20 && Date.now() <= deadline && this.running.get(id) === r; i++) {
+      this.finished(id, r, outcome);
+      if (this.running.get(id) === r) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (this.running.get(id) === r) {
+      r.recoveryRequired = true;
+      this.patch(id, {lastError: 'Browser exit unknown; profile lock retained for safe recovery'});
+      throw Error('Browser exit unknown; profile lock retained for safe recovery');
+    }
+  }
+
+  async stop(id: string) {
+    const r = this.running.get(id); if (!r) return;
+    if (r.stopping) return r.stopping;
+    r.closing = true;
+    const job = this.jobs.get(id); if (job?.running) job.cancelled = true;
+    r.stopping = (async () => {
+      if (!r.context && r.ready) await this.bounded(r.ready.catch(() => undefined), 35000);
+      if (this.running.get(id) === r) await this.closeRuntime(id, r);
+    })();
+    try {await r.stopping;} catch {r.recoveryRequired = true; this.patch(id, {lastError: 'Browser close failed or timed out; lock retained.'}); throw Error('Browser close failed or timed out; lock retained.');} finally {r.stopping = undefined;}
   }
 
   async shutdown() {
-    await Promise.all([...this.running.keys()].map(id => this.stop(id).catch(() => {})));
+    if (this.shutdownWork) return this.shutdownWork;
+    this.shuttingDown = true;
+    this.shutdownWork = this.bounded(Promise.allSettled([...this.running.keys()].map(id => this.stop(id))).then(() => undefined), 41000).catch(() => {this.log('Shutdown deadline reached; uncertain browser locks retained');}).finally(() => {this.closedForUpdates = true;});
+    return this.shutdownWork;
   }
 
   async proxySave(id: string | undefined, input: unknown) {
@@ -433,8 +452,16 @@ export class Service {
     if (this.profiles().some(v => v.proxyId === key && this.running.has(v.id))) {
       throw Error('Stop assigned profiles before editing a proxy');
     }
+    if (p.protocol === 'socks5' && !p.username && !p.password && old?.secret && p.username === undefined && p.password === undefined) throw Error('Clear stored credentials before switching to SOCKS5');
     const explicit = p.username !== undefined || p.password !== undefined;
-    const secret = explicit ? (p.username || p.password ? await this.secrets.seal(JSON.stringify({username: p.username, password: p.password})) : null) : old?.secret ?? null;
+    let secret = old?.secret ?? null;
+    if (explicit) {
+      if (!p.username && !p.password) secret = null;
+      else {
+        try {secret = await this.bounded(this.secrets.seal(JSON.stringify({username: p.username, password: p.password})), 5000);}
+        catch {throw Error('Windows DPAPI unavailable; credentials were not saved and no plaintext fallback was used');}
+      }
+    }
     const data = {
       id: key,
       name: p.name,
@@ -459,9 +486,10 @@ export class Service {
     let context: BrowserContext | undefined;
     let result = 'Connection failed (credentials and raw errors withheld)';
     try {
+      this.verifyBrowserRuntime();
       const browser = await chromium.launch({
         headless: true,
-        proxy: await this.proxyOptions(id),
+        proxy: await this.bounded(this.proxyOptions(id), 5000),
         timeout: 20000,
         executablePath: chromium.executablePath(),
       });
@@ -473,7 +501,7 @@ export class Service {
         const body = z.object({ip: z.string().regex(/^[0-9a-fA-F:.]+$/)}).parse(await response.json());
         result = `Connected — public IP ${body.ip}`;
       } finally {
-        await browser.close();
+        try {await this.bounded(browser.close(), 5000);} catch {result = 'Test browser cleanup could not be confirmed; sensitive details withheld';}
       }
     } catch {
       /* controlled redacted failure */
@@ -529,50 +557,19 @@ export class Service {
   }
 
   async automate(id: string, steps: Extract<Request, {action: 'automate'}>['steps']) {
+    const validated = requestSchema.parse({action: 'automate', id, steps});
+    if (validated.action !== 'automate') throw Error('Invalid automation request');
     if (this.jobs.get(id)?.running) throw Error('An automation job is already running');
     const page = this.page(id);
-    const job = {running: true, message: 'Running', cancelled: false};
+    const job: Job = {running: true, message: 'Running', cancelled: false};
     this.jobs.set(id, job);
-    const report: {step: number; action: string; result: string}[] = [];
-    try {
-      for (const [index, step] of steps.entries()) {
-        if (job.cancelled) throw Error('Stopped');
-        page.setDefaultTimeout(10000);
-        switch (step.action) {
-          case 'navigate':
-            await page.goto(step.url, {timeout: 15000, waitUntil: 'domcontentloaded'});
-            break;
-          case 'title':
-            report.push({step: index + 1, action: step.action, result: await page.title()});
-            break;
-          case 'screenshot':
-            await page.screenshot({path: path.join(this.root, 'reports', `${id}-${Date.now()}.png`)});
-            break;
-          case 'wait':
-            await page.locator(step.selector).waitFor({timeout: 10000});
-            break;
-          case 'click':
-            await page.locator(step.selector).click();
-            break;
-          case 'fill':
-            await page.locator(step.selector).fill(step.value);
-            break;
-        }
-        job.message = `Completed step ${index + 1}/${steps.length}`;
-      }
-      job.message = 'Completed';
-    } catch {
-      job.message = job.cancelled ? 'Stopped' : 'Failed; selector, navigation or browser operation did not complete';
-    } finally {
-      job.running = false;
-      fs.writeFileSync(path.join(this.root, 'reports', `${id}-${Date.now()}.json`), JSON.stringify({profileId: id, time: now(), outcome: job.message, report}, null, 2), {mode: 0o600});
-    }
-    return job.message;
+    job.done = runAutomation(page, validated.steps, path.join(this.root, 'reports'), id, job);
+    return job.done;
   }
 
   async automationStop(id: string) {
     const job = this.jobs.get(id);
-    if (job) {
+    if (job?.running) {
       job.cancelled = true;
       job.message = 'Stopping';
       await this.stop(id);
@@ -604,21 +601,30 @@ export class Service {
     this.assertIdle(id);
     this.busy.add(id);
     try {
+      assertSafeParents(this.directory(id));
+      const target = path.resolve(destination);
+      assertSafeParents(path.dirname(target));
+      const profiles = path.resolve(this.root, 'profiles');
+      if ((!path.relative(profiles, target).startsWith('..' + path.sep) && path.relative(profiles, target) !== '..' && !path.isAbsolute(path.relative(profiles, target))) || [this.db.file, path.join(this.root, 'application.log')].some(p => process.platform === 'win32' ? p.toLowerCase() === target.toLowerCase() : p === target)) throw Error('Unsafe backup destination');
+      if (fs.existsSync(target) && (!fs.lstatSync(target).isFile() || fs.lstatSync(target).isSymbolicLink())) throw Error('Unsafe backup destination');
       const p = this.profile(id);
       const files: z.infer<typeof manifestSchema>['files'] = [];
       let total = 0;
       const walk = (dir: string) => {
         for (const item of fs.readdirSync(dir, {withFileTypes: true})) {
-          if (['.phantom-lock', 'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Cache', 'Code Cache', 'GPUCache'].includes(item.name)) continue;
+          if (['.phantom-lock', '.phantom-recovery', 'SingletonLock', 'SingletonCookie', 'SingletonSocket', 'Cache', 'Code Cache', 'GPUCache'].includes(item.name)) continue;
           const full = path.join(dir, item.name);
           if (item.isSymbolicLink()) throw Error('Symbolic links cannot be backed up');
           if (item.isDirectory()) walk(full);
           else if (item.isFile()) {
-            total += fs.statSync(full).size;
-            if (total > 256 * 1024 * 1024) throw Error('Backup exceeds 256 MiB safety limit; clear browser caches first');
-            const bytes = fs.readFileSync(full);
+            const stat = fs.lstatSync(full);
+            if (stat.size > BACKUP_LIMITS.file || files.length >= BACKUP_LIMITS.count) throw Error('Backup file or count exceeds safety limit');
+            total += stat.size;
+            if (total > BACKUP_LIMITS.total) throw Error('Backup exceeds 256 MiB safety limit; clear browser caches first');
+            const bytes = readBoundedFile(full, BACKUP_LIMITS.file);
+            if (bytes.length !== stat.size) throw Error('Profile changed during backup');
             files.push({name: path.relative(this.directory(id), full).split(path.sep).join('/'), size: bytes.length, sha256: hash(bytes), data: bytes.toString('base64')});
-          }
+          } else throw Error('Unsupported profile file type');
         }
       };
       walk(this.directory(id));
@@ -629,11 +635,16 @@ export class Service {
         profile: {...pickInput(p), proxyId: null},
         files,
       };
-      const bytes = gzipSync(JSON.stringify(manifest));
-      const tmp = destination + '.partial';
-      fs.writeFileSync(tmp, bytes, {mode: 0o600});
-      fs.renameSync(tmp, destination);
-      this.db.transaction(() => this.db.run('INSERT INTO backups VALUES(?,?,?,?,?)', [randomUUID(), id, now(), destination, hash(bytes)]));
+      const json = JSON.stringify(manifest);
+      if (Buffer.byteLength(json) > BACKUP_LIMITS.decompressed) throw Error('Backup manifest exceeds safety limit');
+      const bytes = gzipSync(json);
+      if (bytes.length > BACKUP_LIMITS.archive) throw Error('Backup archive exceeds safety limit');
+      const tmp = target + '.' + randomUUID() + '.partial';
+      try {
+        fs.writeFileSync(tmp, bytes, {mode: 0o600, flag: 'wx'});
+        fs.renameSync(tmp, target);
+      } finally {fs.rmSync(tmp, {force: true});}
+      this.db.transaction(() => this.db.run('INSERT INTO backups VALUES(?,?,?,?,?)', [randomUUID(), id, now(), target, hash(bytes)]));
       return destination;
     } finally {
       this.busy.delete(id);
@@ -641,33 +652,42 @@ export class Service {
   }
 
   async restore(source: string) {
-    if (fs.statSync(source).size > 400 * 1024 * 1024) throw Error('Backup archive too large');
+    assertSafeParents(source);
+    if (!fs.lstatSync(source).isFile() || fs.lstatSync(source).size > BACKUP_LIMITS.archive) throw Error('Backup archive too large or unsupported');
     let manifest: z.infer<typeof manifestSchema>;
     try {
-      manifest = manifestSchema.parse(JSON.parse(gunzipSync(fs.readFileSync(source), {maxOutputLength: 400 * 1024 * 1024}).toString('utf8')));
+      manifest = manifestSchema.parse(JSON.parse(gunzipSync(readBoundedFile(source, BACKUP_LIMITS.archive), {maxOutputLength: BACKUP_LIMITS.decompressed}).toString('utf8')));
     } catch {
       throw Error('Corrupt or unsupported backup');
     }
     const names = new Set<string>();
     let total = 0;
+    if (manifest.files.length > BACKUP_LIMITS.count) throw Error('Backup file count exceeds safety limit');
     for (const f of manifest.files) {
+      if (f.size > BACKUP_LIMITS.file) throw Error('Backup file exceeds safety limit');
       if (!safeArchivePath(f.name) || names.has(f.name.toLowerCase())) throw Error('Unsafe or duplicate archive path');
-      names.add(f.name.toLowerCase());
+      const normalized = f.name.normalize('NFC').toLowerCase();
+      if (names.has(normalized)) throw Error('Unsafe or duplicate archive path');
+      names.add(normalized);
+      if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(f.data)) throw Error('Backup checksum or encoding mismatch');
       const data = Buffer.from(f.data, 'base64');
+      if (data.toString('base64') !== f.data) throw Error('Backup checksum or encoding mismatch');
       total += data.length;
-      if (total > 256 * 1024 * 1024 || data.length !== f.size || hash(data) !== f.sha256) throw Error('Backup checksum or size mismatch');
+      if (total > BACKUP_LIMITS.total || data.length !== f.size || hash(data) !== f.sha256) throw Error('Backup checksum or size mismatch');
     }
-    const p = this.create({...manifest.profile, proxyId: null, name: manifest.profile.name + ' (restored)'});
+    for (const name of names) {let parent = path.posix.dirname(name); while (parent !== '.') {if (names.has(parent)) throw Error('Unsafe archive file/directory collision'); parent = path.posix.dirname(parent);}}
+    const p = this.create({...manifest.profile, proxyId: null, name: manifest.profile.name.slice(0, 89) + ' (restored)'});
     try {
       for (const file of manifest.files) {
         const dest = path.join(this.directory(p.id), file.name);
         fs.mkdirSync(path.dirname(dest), {recursive: true});
-        fs.writeFileSync(dest, Buffer.from(file.data, 'base64'), {mode: 0o600});
+        assertSafeParents(path.dirname(dest));
+        fs.writeFileSync(dest, Buffer.from(file.data, 'base64'), {mode: 0o600, flag: 'wx'});
       }
-      this.patch(p.id, {engineVersion: manifest.engine, notes: p.notes + '\nRestored backup. Browser-version compatibility and OS-bound cookie decryption must be checked before use.'});
+      this.patch(p.id, {engineVersion: manifest.engine, notes: p.notes.slice(0, 3800) + '\nRestored backup. Browser-version compatibility and OS-bound cookie decryption must be checked before use.'});
       return p;
     } catch (e) {
-      this.delete(p.id, true);
+      try {this.db.transaction(() => this.db.run('DELETE FROM profiles WHERE id=?', [p.id]));} finally {fs.rmSync(this.directory(p.id), {recursive: true, force: true});}
       throw e;
     }
   }
@@ -678,5 +698,28 @@ function pickInput(p: Profile) {
 }
 
 export function safeArchivePath(name: string) {
-  return !!name && !name.includes('\\') && !name.startsWith('/') && !name.includes(':') && name.split('/').every(p => p !== '.' && p !== '..' && p !== '' && !/[. ]$/.test(p) && !/[<>|?*]/.test(p) && ![...p].some(c => c.charCodeAt(0) < 32) && !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(p)) && !name.split('/').some(p => p.toLowerCase() === '.phantom-lock');
+  return !!name && !name.includes('\\') && !name.startsWith('/') && !name.includes(':') && name.split('/').every(p => p !== '.' && p !== '..' && p !== '' && !/[. ]$/.test(p) && !/[<>|?*]/.test(p) && ![...p].some(c => c.charCodeAt(0) < 32) && !/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/i.test(p)) && !name.split('/').some(p => ['.phantom-lock', '.phantom-recovery', 'singletonlock', 'singletonsocket', 'singletoncookie'].includes(p.toLowerCase()));
+}
+
+function assertSafeParents(input: string) {
+  for (let p = path.resolve(input); ; p = path.dirname(p)) {
+    if (fs.lstatSync(p).isSymbolicLink()) throw Error('Symbolic-link paths are not supported');
+    if (p === path.dirname(p)) break;
+  }
+}
+
+function readBoundedFile(file: string, limit: number): Buffer {
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0));
+  try {
+    if (!fs.fstatSync(fd).isFile() || fs.fstatSync(fd).size > limit) throw Error('File exceeds safety limit');
+    const parts: Buffer[] = []; let total = 0;
+    for (;;) {
+      const buffer = Buffer.alloc(Math.min(1024 * 1024, limit + 1 - total));
+      const size = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (!size) break;
+      total += size; if (total > limit) throw Error('File exceeds safety limit');
+      parts.push(buffer.subarray(0, size));
+    }
+    return Buffer.concat(parts, total);
+  } finally {fs.closeSync(fd);}
 }

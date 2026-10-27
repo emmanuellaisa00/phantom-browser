@@ -1,3 +1,5 @@
+> **v0.1.1 candidate (local, not published):** hardening changes and regression tests are described in [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md). Windows packaging/installation for this candidate has not been verified yet. The download below remains the older **v0.1.0** release.
+
 > **Windows installer:** [Download Phantom Browser Setup 0.1.0 (Windows x64)](https://github.com/emmanuellaisa00/phantom-browser/releases/download/v0.1.0/Phantom-Browser-Setup-0.1.0-x64.exe). One setup EXE includes Chromium; no Node.js or Git needed. This unsigned build passed Windows browser, DPAPI, and installed-application smoke tests. [Installation details](docs/WINDOWS_INSTALL.md).
 
 # Phantom Browser — Local-First Windows Profile Manager
@@ -132,7 +134,7 @@ phantom-browser/
 * Restore validates gzip, Zod manifest, Windows-reserved names, control chars, duplicate case-insensitive paths, per-file size/hash, total cap, 400 MiB archive limit, then creates **new profile** + writes files `0600`. Never overwrites existing. Proxy excluded, note about OS-bound cookie encryption.
 
 #### Automation
-* Playwright-powered local runner: `navigate(url)`, `title()`, `screenshot()`, `wait(selector)`, `click(selector)`, `fill(selector,value)`. Explicit user start, loopback only, no remote port. Job cancel = `context.close()` → profile lock released. Reports + PNG screenshots in `userData/reports/` (`0600`).
+* Playwright-powered local runner: `navigate(url)`, `title()`, `screenshot()`, `wait(selector)`, `click(selector)`, `fill(selector,value)`. Explicit user start through local IPC, no remote automation port. Navigation permits HTTP(S) destinations; URLs are not restricted to loopback. Job cancel requests bounded context closure; locks are released only when browser exit can be established. Versioned structured reports for every attempted step + privacy-masked PNG screenshots in `userData/reports/` (`0600`).
 
 #### UI
 * Premium dark graphite theme (compact tables, subtle borders, restrained accent). 8 pages: Dashboard, Profiles, Proxies, Diagnostics, Automation, Backups, Logs, Settings. Loading/empty/error/success/confirm states; keyboard nav + focus-visible; no fake analytics.
@@ -252,7 +254,7 @@ npm run dist:win   # electron-builder --win nsis
 * **Client hints vs UA override:** `userAgent` is passed to `launchPersistentContext`; modern sites may still see mismatched Client Hints. Diagnostics flags UA mismatch rather than hiding it.
 * **Screen/viewport:** Playwright forwards `screen` to `window.screen`; some headful environments clamp it. Test asserts `1000×700` viewport inside `1400×900` screen on Linux headless — may vary on HiDPI Windows.
 * **Geolocation:** `geolocation` field is forwarded as `context.geolocation`; permissions default **denied** unless geolocation is set — app requests none otherwise.
-* **Headless fingerprint:** `navigator.webdriver === true` is visible (reported, not spoofed). Use headful launch if your test harness needs `webdriver: false` (requires a display; not implemented as a spoof).
+* **Headless fingerprint:** `navigator.webdriver === true` is visible (reported, not spoofed). Headful launch is not a guarantee of `webdriver: false`, fingerprint consistency or undetectability. No stealth spoofing is implemented.
 * **Memory:** Each profile = separate Chromium process tree (~180–350 MiB idle). The “max 20” cap is user-configurable, not a guarantee — monitor Task Manager.
 * **Offline:** App starts with no network (proven in tests). Proxy test intentionally fails when offline — shown as redacted error, not silent success.
 
@@ -283,7 +285,7 @@ Full text: `node_modules/<pkg>/LICENSE*` and `browser-runtime/*/LICENSE`. Chromi
 | Symptom | Fix |
 |---|---|
 | `Credential storage requires Windows DPAPI` | Normal on Linux/macOS — proxy passwords cannot be saved there. Use Windows host for credential tests. |
-| `Browser launch failed` | Check `profile.lastError`, antivirus blocking `chrome-headless-shell`, or corrupted `userDataDir` (restore backup). |
+| `Browser launch failed` | Check `profile.lastError`, antivirus blocking bundled Chromium, or corrupted `userDataDir` (restore backup). |
 | `Backup exceeds 256 MiB` | Clear browser caches (`Settings → clear on next launch` not yet implemented — close profile, delete `Cache/Code Cache` manually), then retry. |
 | `Unsafe or duplicate archive path` on restore | Re-download backup; source may have been tampered with (checksum mismatch). |
 | `Profile is locked by a live process` | Kill stale Electron/Chrome from Task Manager; app auto-recovers from `ESRCH` PID on next launch. |

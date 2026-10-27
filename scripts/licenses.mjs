@@ -7,5 +7,7 @@ const pkgs = wanted.map(n => {
   } catch { return `${n} — not installed`; }
 });
 console.log(pkgs.join('\n'));
-if (fs.existsSync('browser-runtime/chromium-1248/chrome-linux64/LICENSE')) console.log('\nChromium LICENSE at browser-runtime/chromium-1248/chrome-linux64/LICENSE');
-else console.log('\nRun npm run provision first to fetch Chromium LICENSE');
+const directory = `browser-runtime/chromium-1248/${process.platform === 'win32' ? 'chrome-win64' : 'chrome-linux64'}`;
+const notices = ['LICENSE', 'ABOUT'].filter(name => fs.existsSync(`${directory}/${name}`));
+if (notices.length) console.log('\nBundled browser notices: ' + notices.map(name => `${directory}/${name}`).join(', ') + '. Browser component credits: chrome://credits. This listing is not a full license-compliance audit.');
+else console.log('\nBrowser notices unavailable. Run npm run provision for this platform.');

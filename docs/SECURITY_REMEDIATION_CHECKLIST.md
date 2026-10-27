@@ -1,3 +1,5 @@
+> Historical v0.1.0 tracker. Current findings, verified results and remaining risks are in [SECURITY_REMEDIATION.md](../SECURITY_REMEDIATION.md); old checkboxes are not evidence of v0.1.1 verification.
+
 # Security Audit Remediation Checklist
 
 > Created: 2026-10-26 — Tracking audit findings across Phases 2–10.
