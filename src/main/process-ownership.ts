@@ -22,17 +22,24 @@ export function scanProcesses(): ProcessIdentity[] | null {
     if (process.platform === 'linux') {
       const entries: ProcessIdentity[] = [];
       for (const pid of fs.readdirSync('/proc').filter(p => /^\d+$/.test(p))) {
+        let browserCandidate:boolean|undefined;
         try {
           const sameUser=fs.statSync(`/proc/${pid}`).uid===process.getuid?.();
           if(!sameUser)continue; // the owned browser's main process uses this service UID
           const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+          browserCandidate=/chrom/i.test(stat.slice(stat.indexOf('(')+1,stat.lastIndexOf(')')));
           const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
           if (fields[0] === 'Z') continue;
-          entries.push({pid: Number(pid), birth: fields[19]!, command: fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join('\n'), executable: fs.readlinkSync(`/proc/${pid}/exe`)});
+          const command=fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').filter(Boolean).join('\n');
+          browserCandidate ||= command.includes('--phantom-launch-id=')||command.includes('--user-data-dir=');
+          entries.push({pid: Number(pid), birth: fields[19]!, command, executable: fs.readlinkSync(`/proc/${pid}/exe`)});
         } catch(error) {
           const code=(error as NodeJS.ErrnoException).code;
           if(code==='ENOENT'||code==='ESRCH')continue; // exited during inspection
-          return null; // unknown/denied inspection is not exit proof
+          // Pinned Chromium main processes have a Chrome name and/or profile argv.
+          // Known unrelated non-dumpable runner processes are not browser candidates.
+          if(browserCandidate===false&&(code==='EACCES'||code==='EPERM'))continue;
+          return null; // unknown/denied browser inspection is not exit proof
         }
       }
       return entries;

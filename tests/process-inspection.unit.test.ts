@@ -14,3 +14,6 @@ it('retains unknown Windows Chromium inspection but permits known unrelated syst
  expect(parseWindowsProcessRows([{ProcessId:123}])).toBe(null);
  expect(parseWindowsProcessRows([{Name:'chrome.exe',ProcessId:123,CommandLine:'chrome.exe --marker',ExecutablePath:'C:/chrome.exe',CreationDate:'birth'}])).toEqual([{pid:123,command:'chrome.exe --marker',executable:'C:/chrome.exe',birth:'birth'}]);
 });
+it.skipIf(process.platform!=='linux').each(['chrome','Runner.Worker'])('classifies denied exe reads for %s without losing conservative Chromium ownership',name=>{
+ vi.spyOn(fs,'readdirSync').mockReturnValue(['123456'] as unknown as ReturnType<typeof fs.readdirSync>);vi.spyOn(fs,'statSync').mockReturnValue({uid:process.getuid!()} as fs.Stats);vi.spyOn(fs,'readFileSync').mockImplementation(p=>String(p).endsWith('/stat')?`123456 (${name}) S ${Array(25).fill('0').join(' ')}`:'/usr/bin/program');vi.spyOn(fs,'readlinkSync').mockImplementation(()=>{throw Object.assign(Error('denied'),{code:'EACCES'});});expect(scanProcesses()).toEqual(name==='chrome'?null:[]);
+});
