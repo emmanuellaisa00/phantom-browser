@@ -43,6 +43,8 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
       try {
         if (job.cancelled) throw Error('Cancelled');
         switch (step.action) {
+          case 'waitURL': await page.waitForURL(url=>url.href===step.url,{timeout:15000}); break;
+          case 'waitTitle': await page.waitForFunction(expected=>document.title===expected,step.title,{timeout:15000}); break;
           case 'url': page.url(); record.metadata = {content:'omitted for privacy'}; break;
           case 'delay': {
             const end = performance.now() + step.milliseconds;
@@ -60,7 +62,7 @@ export async function runAutomation(page: Page, rawSteps: unknown, directory: st
             record.metadata = {content: 'omitted for privacy'};
             break;
           }
-          case 'wait': await page.locator(step.selector).waitFor({timeout: 10000}); break;
+          case 'wait': await page.locator(step.selector).waitFor({timeout: 10000, ...(step.state?{state:step.state}:{})}); break;
           case 'click': await page.locator(step.selector).click({timeout: 10000}); break;
           case 'fill': await page.locator(step.selector).fill(step.value, {timeout: 10000}); break;
         }

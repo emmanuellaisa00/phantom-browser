@@ -64,3 +64,32 @@ test('delay and URL actions execute, keep durations, and never persist raw page 
  const dir=path.join(f.root,'reports'),report=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(p=>p.endsWith('.json'))!),'utf8'));
  expect(report.outcome).toBe('success');expect(report.report[0].durationMs).toBeGreaterThanOrEqual(60);expect(report.durationMs).toBeGreaterThanOrEqual(report.report[0].durationMs);expect(JSON.stringify(report)).not.toContain('PRIVATE_QUERY');
 });
+
+test('URL, title and selector-state conditions wait for real changes without persisting private criteria',async()=>{
+ const p=f.service.create({name:'Conditions',launchUrl:origin});await f.service.launch(p.id);
+ const job=f.service.automate(p.id,[{action:'waitURL',url:origin+'/changed?token=PRIVATE_CRITERIA'},{action:'waitTitle',title:'PRIVATE_TITLE'},{action:'wait',selector:'#absent',state:'hidden'}]);
+ await f.service.page(p.id).evaluate(()=>{setTimeout(()=>{history.pushState({},'','/changed?token=PRIVATE_CRITERIA');setTimeout(()=>document.title='PRIVATE_TITLE',50);},75);});
+ expect(await job).toBe('Completed');const dir=path.join(f.root,'reports'),text=fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(p=>p.endsWith('.json'))!),'utf8');expect(text).not.toContain('PRIVATE_CRITERIA');expect(text).not.toContain('PRIVATE_TITLE');expect(JSON.parse(text).durationMs).toBeGreaterThanOrEqual(100);
+});
+
+test('long delay cancellation is bounded and marks the report cancelled',async()=>{
+ const p=f.service.create({name:'Cancel delay',launchUrl:origin});await f.service.launch(p.id);const started=performance.now(),job=f.service.automate(p.id,[{action:'delay',milliseconds:30000},{action:'title'}]);await f.service.automationStop(p.id);expect(await job).toBe('Stopped');expect(performance.now()-started).toBeLessThan(10000);
+ const dir=path.join(f.root,'reports'),report=JSON.parse(fs.readFileSync(path.join(dir,fs.readdirSync(dir).find(p=>p.endsWith('.json'))!),'utf8'));expect(report.outcome).toBe('cancelled');expect(report.attemptedSteps).toBe(1);
+});
+
+test('opt-in native tab and session storage restoration survives a graceful stop',async()=>{
+ const p=f.service.create({name:'Restore native session',launchUrl:origin+'/initial',restoreSession:true});const context=await f.service.launch(p.id);
+ await f.service.page(p.id).evaluate(()=>{sessionStorage.setItem('tab-session','private-tab');history.pushState({},'','/remember-first');});const second=await context.newPage();await second.goto(origin+'/remember-second');await second.evaluate(()=>sessionStorage.setItem('tab-session','second-tab'));
+ await f.service.stop(p.id);const restored=await f.service.launch(p.id);await expect.poll(()=>restored.pages().map(p=>p.url())).toContain(origin+'/remember-first');await expect.poll(()=>restored.pages().map(p=>p.url())).toContain(origin+'/remember-second');
+ expect(await restored.pages().find(p=>p.url().endsWith('/remember-first'))!.evaluate(()=>sessionStorage.getItem('tab-session'))).toBe('private-tab');
+});
+
+test('IndexedDB and Chromium history persist without crossing profile directories',async()=>{
+ const a=f.service.create({name:'IDB A',launchUrl:origin+'/only-A'}),b=f.service.create({name:'IDB B',launchUrl:origin+'/only-B'});
+ await f.service.launch(a.id);await f.service.page(a.id).evaluate(()=>new Promise<void>((resolve,reject)=>{const request=indexedDB.open('workspace-db',1);request.onupgradeneeded=()=>request.result.createObjectStore('values');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('values','readwrite');tx.objectStore('values').put('profile-A','identity');tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);};}));
+ await f.service.launch(b.id);expect(await f.service.page(b.id).evaluate(async()=>(await indexedDB.databases()).some(db=>db.name==='workspace-db'))).toBe(false);
+ await f.service.stop(a.id);await f.service.launch(a.id);expect(await f.service.page(a.id).evaluate(()=>new Promise<string|undefined>((resolve,reject)=>{const request=indexedDB.open('workspace-db',1);request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,get=db.transaction('values').objectStore('values').get('identity');get.onsuccess=()=>{resolve(get.result as string|undefined);db.close();};get.onerror=()=>reject(get.error);};}))).toBe('profile-A');
+ await f.service.stop(a.id);await f.service.stop(b.id);const {default:init}=await import('sql.js'),SQL=await init();
+ const history=(directory:string)=>{const db=new SQL.Database(fs.readFileSync(path.join(directory,'Default','History')));try{return JSON.stringify(db.exec('SELECT url FROM urls'));}finally{db.close();}};
+ expect(history(a.directory)).toContain('/only-A');expect(history(b.directory)).toContain('/only-B');expect(history(b.directory)).not.toContain('/only-A');
+});

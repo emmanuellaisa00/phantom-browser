@@ -36,7 +36,7 @@ it('does not commit credentials if a profile starts while DPAPI encryption is pe
 });
 it('loads v0.1.1 JSON metadata without a destructive migration and keeps legacy startup settings',()=>{
  const p=f.service.create({name:'Legacy',launchUrl:'https://example.com'});const legacy:Record<string,unknown>={...p};
- for(const key of ['description','homepage','startupUrls','archivedAt','lastUsed'])delete legacy[key];
+ for(const key of ['description','homepage','startupUrls','restoreSession','archivedAt','lastUsed'])delete legacy[key];
  f.db.transaction(()=>f.db.run('UPDATE profiles SET data=? WHERE id=?',[JSON.stringify(legacy),p.id]));
  const loaded=f.service.profile(p.id);expect(loaded.startupUrls).toEqual([]);expect(loaded.archivedAt).toBe(null);expect(loaded.launchUrl).toBe('https://example.com');expect(fs.existsSync(loaded.directory)).toBe(true);
 });

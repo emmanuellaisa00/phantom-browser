@@ -139,7 +139,7 @@ export class Service {
     const id = randomUUID();
     fs.mkdirSync(this.directory(id));
     const p: Profile = {
-      ...v, description:v.description??'', homepage:v.homepage??'', startupUrls:v.startupUrls??[], archivedAt:null, lastUsed:null, id, createdAt: now(), updatedAt: now(), lastLaunch: null,
+      ...v, restoreSession:v.restoreSession??false, description:v.description??'', homepage:v.homepage??'', startupUrls:v.startupUrls??[], archivedAt:null, lastUsed:null, id, createdAt: now(), updatedAt: now(), lastLaunch: null,
       engineVersion: 'Not launched', lastError: null, status: 'stopped',
       directory: this.directory(id),
     };
@@ -357,7 +357,7 @@ export class Service {
         headless: this.headless, chromiumSandbox: !this.headless,
         ignoreDefaultArgs: ['--password-store=basic', '--use-mock-keychain'],
         proxy, ...this.options(p.config), acceptDownloads: false, timeout: 30000,
-        executablePath: chromium.executablePath(), args: [`--phantom-launch-id=${r.launchId}`, ...(p.config.webrtcPolicy === 'disable-non-proxied-udp' ? ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] : [])],
+        executablePath: chromium.executablePath(), args: [`--phantom-launch-id=${r.launchId}`, ...(p.restoreSession?['--restore-last-session']:[]), ...(p.config.webrtcPolicy === 'disable-non-proxied-udp' ? ['--force-webrtc-ip-handling-policy=disable_non_proxied_udp'] : [])],
       });
       r.context = context;
       context.on('close', () => {r.closed = true; r.settling = this.settleExit(id, r, r.closing ? 'stopped' : 'closed'); void r.settling.catch(() => {});});
@@ -377,7 +377,8 @@ export class Service {
       if (r.closing || this.shuttingDown) {await this.closeRuntime(id, r); throw Error('Launch cancelled');}
       this.patch(id, {engineVersion: context.browser()?.version() ?? 'Unknown', lastLaunch: now(), lastUsed:now(), lastError: null});
       const page = context.pages()[0] ?? await context.newPage();
-      const urls = p.startupUrls.length ? p.startupUrls : p.launchUrl ? [p.launchUrl] : p.homepage ? [p.homepage] : [];
+      const restoredSession = p.restoreSession && context.pages().some(tab=>!['about:blank','chrome://newtab/'].includes(tab.url()));
+      const urls = restoredSession ? [] : p.startupUrls.length ? p.startupUrls : p.launchUrl ? [p.launchUrl] : p.homepage ? [p.homepage] : [];
       for (const [index,url] of urls.entries()) {
         if (r.closing || this.shuttingDown) throw Error('Launch cancelled');
         const tab = index === 0 ? page : await context.newPage();
@@ -739,7 +740,7 @@ export class Service {
 }
 
 function pickInput(p: Profile) {
-  return {name: p.name, description:p.description, homepage:p.homepage, startupUrls:p.startupUrls, notes: p.notes, tags: p.tags, config: p.config, proxyId: p.proxyId, launchUrl: p.launchUrl};
+  return {name: p.name, restoreSession:p.restoreSession, description:p.description, homepage:p.homepage, startupUrls:p.startupUrls, notes: p.notes, tags: p.tags, config: p.config, proxyId: p.proxyId, launchUrl: p.launchUrl};
 }
 
 export function safeArchivePath(name: string) {

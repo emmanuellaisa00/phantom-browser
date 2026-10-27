@@ -22,3 +22,26 @@ test('renderer security preferences, denied new windows and blocked external nav
     expect(await page.evaluate(() => typeof (window as unknown as {process?: unknown}).process)).toBe('undefined');
   } finally {await app.close(); fs.rmSync(root, {recursive: true, force: true});}
 });
+
+test('guided setup, archive/unarchive and encrypted backup round trip through real IPC',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'phantom-guided-')),archive=path.join(root,'controlled.phantom.jwe');
+ const app=await electron.launch({args:['.',`--user-data-dir=${root}`,...(process.platform==='linux'?['--no-sandbox']:[])]});
+ try{
+  await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});dialog.showMessageBox=async()=>({response:1,checkboxChecked:false});},archive);
+  const page=await app.firstWindow();await page.getByRole('button',{name:'＋ Create profile'}).first().click();
+  await page.getByLabel('Profile name',{exact:true}).fill('Guided workspace');await page.getByLabel('Description',{exact:true}).fill('Controlled desktop setup');
+  await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByLabel('Homepage (optional)',{exact:true}).fill('https://example.com/home');await page.getByLabel('Startup URLs (one per line, maximum 10)').fill('https://example.com/one\nhttps://example.com/two');
+  await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByLabel('Device pixel ratio',{exact:true}).fill('1.25');await page.getByLabel('Timezone',{exact:true}).fill('Africa/Nairobi');
+  await page.getByRole('button',{name:'Next',exact:true}).click();await expect(page.getByRole('heading',{name:'Review configuration'})).toBeVisible();await page.getByRole('button',{name:'Create profile',exact:true}).click();await expect(page.getByRole('dialog')).not.toBeVisible();
+  const snapshot=async()=>page.evaluate(async()=>{const reply=await window.phantom!.request({action:'snapshot'});if(!reply.ok)throw Error(reply.error);return reply.snapshot;});
+  const p=(await snapshot()).profiles[0]!;expect(p.description).toBe('Controlled desktop setup');expect(p.startupUrls).toHaveLength(2);expect(p.config.deviceScaleFactor).toBe(1.25);
+  await page.getByRole('button',{name:'Browser Profiles',exact:true}).click();await page.getByLabel('More actions for Guided workspace',{exact:true}).click();await page.getByRole('button',{name:'Archive profile',exact:true}).click();
+  await expect(page.getByText('Guided workspace',{exact:true})).not.toBeVisible();expect(fs.existsSync(p.directory)).toBe(true);expect((await snapshot()).profiles[0]!.archivedAt).not.toBe(null);
+  await page.getByLabel('Archive filter').selectOption('archived');await expect(page.getByText('Guided workspace',{exact:true})).toBeVisible();await page.getByLabel('More actions for Guided workspace',{exact:true}).click();await page.getByRole('button',{name:'Unarchive profile',exact:true}).click();expect((await snapshot()).profiles[0]!.archivedAt).toBe(null);
+  await page.getByRole('button',{name:'Backups',exact:true}).click();await page.getByLabel('Profile to back up').selectOption(p.id);await page.getByRole('button',{name:'Export backup…',exact:true}).click();
+  await page.getByLabel('Backup password',{exact:true}).fill('Controlled backup password!');await page.getByLabel('Confirm password',{exact:true}).fill('Controlled backup password!');await page.getByRole('button',{name:'Choose export file…',exact:true}).click();await expect(page.getByRole('dialog')).not.toBeVisible();
+  expect(fs.readFileSync(archive,'utf8').split('.')).toHaveLength(5);expect(fs.readFileSync(path.join(root,'phantom.sqlite')).includes(Buffer.from('Controlled backup password!'))).toBe(false);
+  await page.getByRole('button',{name:'↥ Restore backup',exact:true}).click();await page.getByLabel('Backup password',{exact:true}).fill('Controlled backup password!');await page.getByRole('button',{name:'Choose archive…',exact:true}).click();await expect(page.getByRole('dialog')).not.toBeVisible();
+  const restored=(await snapshot()).profiles.find(profile=>profile.id!==p.id)!;expect(restored.description).toBe(p.description);expect(restored.startupUrls).toEqual(p.startupUrls);expect(restored.directory).not.toBe(p.directory);
+ }finally{await app.close();fs.rmSync(root,{recursive:true,force:true});}
+});

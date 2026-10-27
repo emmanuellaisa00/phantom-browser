@@ -19,7 +19,8 @@
     "test:desktop": "playwright test tests/desktop.integration.spec.ts",
     "verify:runtime": "node scripts/verify-runtime.mjs",
     "test:installed": "playwright test tests/installed.integration.spec.ts",
-    "test:runtime": "vitest run tests/runtime.unit.test.ts"
+    "test:runtime": "vitest run tests/runtime.unit.test.ts",
+    "start": "electron ."
   },
   "dependencies": {
     "jose": "6.2.13",
